@@ -1083,7 +1083,7 @@ sub command_for_me ($$$$$) {
   if ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
     my $flags='';
-    my($first,$last)=(0,$::Max_Results-1);
+    my($first,$count)=(0,$::Max_Results);
 
     if($search=~ s/^-i\s+//) {
       $flags='(?i)';
@@ -1097,14 +1097,15 @@ sub command_for_me ($$$$$) {
 
     if($search=~ s/^(\d+|\d+-\d+)\s+(?:things about\s+|)//) {
       my $arg=$1;
+      $arg=1 if $arg eq "0"; # fix previous breakage
+
       if($arg=~ m%^(\d+)-(\d+)$%) {
+	my $last;
 	($first,$last)=($1,$2);
-	# Reset if stupid things done
-	if($first > $last) {
-	  ($first,$last)=(0,$::Max_Results-1);
-	}
+	$count=$last-$first+1;
+	$count=1 if $count<0;
       } else {
-        $last=$arg;
+        $count=$arg;
       }
     }
 
@@ -1161,10 +1162,13 @@ sub command_for_me ($$$$$) {
 	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
       }
     } else {
-      my $pl=(@results != 1) ? 's' : '';
-      $output.=" I found ".scalar(@results)." answer$pl for '$orig_search'";
-      $last=@results if $last > @results;
-      if($first !=0 || $last != @results) {
+      my $size=scalar(@results);
+      my $pl=($size != 1) ? 's' : '';
+      $output.=" I found $size answer$pl for '$orig_search'";
+
+      my $last=$first+$count-1;
+      $last=$size-1 if $last > $size-1;
+      if($first !=0 || $last != $size-1) {
 	$output.=" (showing $first...$last)";
       }
       $self->privmsg($dest_nick, $output);
@@ -1175,7 +1179,7 @@ sub command_for_me ($$$$$) {
       log_event($self, $event, time, $output) unless $is_private;
 
       my $count=0;
-      for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
+      for(my $i=$first; $i <= $last; $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
 	$self->privmsg($dest_nick, $output);
@@ -1352,7 +1356,10 @@ with C<?>). It returns matches to the given perl regex in
 recent output, most recent first. See the help text for more details.
 The search results can be emailed to somebody by appending
 C<|MAIL-ADDRESS> to the end of the search line (you must have a
-space before the C<|>)
+space before the C<|>).  Selected results can be returned by
+prefixing the command with a count or a range like this:
+  /msg logger grep 5 things
+  /msg logger grep 10-20 things
 
 Logger has some administrative commands that can be found from:
   /msg logger adminhelp
