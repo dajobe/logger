@@ -94,14 +94,18 @@ sub get_logs () {
 
   return () if !opendir(DIR, $log_dir);
 
+  # In date order, newest lines at top
   my(@results)=();
-  for my $file (sort readdir(DIR)) {
+  # Newest files first
+  for my $file (reverse sort readdir(DIR)) {
     next unless $file =~ /^\d\d\d\d-\d\d.log/;
     open(LOG, "$log_dir/$file") or next;
     
-    push(@results, map {chomp, $_} <LOG>);
+    # Append to list, reverse date sorted list - i.e. older entries at end 
+    push(@results, reverse map {chomp, $_} <LOG>);
     close(LOG);
   }
+  closedir(DIR);
 
   return(@results);
 }
@@ -187,9 +191,20 @@ sub on_part {
 sub on_join {
   my ($self, $event) = @_;
   my ($channel) = ($event->to)[0];
-  
-  log_event(time, sprintf("%s (%s) has joined channel", $event->nick, $event->userhost));
+  my $user_nick=$event->nick;
+
+  log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost));
+
+  my $output="Hello $user_nick, I may be recording you.  At present ";
+  if(!$::listening) {
+    $output.="I'm not listening.";
+  } else {
+    $output="I'm listening.";
+  }
+
+  $conn->notice($event->nick, $output);
 }
+
 
 sub command_for_me ($$$$) {
   my($self, $from_nick, $command, $is_private)=@_;
@@ -198,11 +213,14 @@ sub command_for_me ($$$$) {
 
   my $output='';
 
+  my $dest_nick=($is_private ? $from_nick : $Channel);
+
+
   if($is_private && $command eq 'restart') {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
-    exec('logger');
+    exec('/home/logger/logger');
   }
   
   if($command=~ /^(?:quit|finish|terminate|die die die)/i) {
@@ -234,38 +252,40 @@ sub command_for_me ($$$$) {
     $output="I'm listening. ";
   }
 
+
   if($command=~ /^help/i) {
-    $output.="I understand 'quit', 'silence', 'listen', 'grep REGEX'";
+    $output.="I understand 'quit', 'silence', 'listen', 'grep (-i) REGEX'";
   }
   elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
+    my $flags='';
     my $max=$Max_Results;
+
+    if($search=~ s/^-i\s+//) {
+      $flags='(?i)';
+    }
     if($search=~ s/^(\d+)\s+(?:things about\s+|)//) {
       $max=$1;
     }
     # Only allow a few regexes
-    $search =~ s/[^a-z0-9A-Z\.+*]/./g;
+    $search =~ s/[^a-z0-9A-Z\.+* ]/./g;
+
+    # Prefix with flags
+    $search=$flags.$search;
+
     my(@bits)=grep(/$search/, get_logs());
     if (!@bits) {
       $output.=" Nothing found for '$search' :-(";
     } else {
       $output.=" Found ".scalar(@bits)." answers:\n";
-      if($is_private) {
-	$conn->notice($from_nick, $output);
-      } else {
-	$conn->notice($Channel, $output);
-      }
+      $conn->notice($dest_nick, $output);
       for(my $i=0; $i< @bits; $i++) {
 	if($i > $max) {
-	  $conn->notice($Channel, "Truncated after $max items\n");
+	  $conn->notice($dest_nick, "Truncated after $max items\n");
 	  last;
 	}
 	$output="$i: ".$bits[$i]."\n";
-	if($is_private) {
-	  $conn->notice($from_nick, $output);
-	} else {
-	  $conn->notice($Channel, $output);
-	}
+	$conn->notice($dest_nick, $output);
       }
       return;
     }
@@ -273,11 +293,7 @@ sub command_for_me ($$$$) {
     $output.="I don't understand that, $from_nick";
   }
 
-  if($is_private) {
-    $conn->notice($from_nick, $output);
-  } else {
-    $conn->notice($Channel, $output);
-  }
+  $conn->notice($dest_nick, $output);
 }
 
 
