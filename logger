@@ -56,8 +56,6 @@ $::Host=(hostname || 'unknown');
 
 $::Nick='logger'; # OK this can be changed if clashes
 $::IRC_Name='Chat Logger';
-$::Max_Results=5;
-$::Max_Max_Results=20;
 
 $::LogActionMsgs=1;
 $::LogUserHosts=0;
@@ -1098,114 +1096,7 @@ sub command_for_me ($$$$$) {
   }
 
   if ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
-    my $search=$1;
-    my $flags='';
-    my($first,$count)=(0,$::Max_Results);
-
-    if($search=~ s/^-i\s+//) {
-      $flags='(?i)';
-    }
-
-    my $mail='';
-    if($search =~ s%\|mail\s+(.+)$%%) {
-      $mail=$1;
-      $search =~ s%\s+$%%;
-    }
-
-    if($search=~ s/^(\d+|\d+-\d+)\s+(?:things about\s+|)//) {
-      my $arg=$1;
-      $arg=1 if $arg eq "0"; # fix previous breakage
-
-      if($arg=~ m%^(\d+)-(\d+)$%) {
-	my $last;
-	($first,$last)=($1,$2);
-	$count=$last-$first+1;
-	$count=1 if $count<0;
-      } else {
-        $count=$arg;
-      }
-    }
-
-    my $orig_search=$search;
-
-    # Only allow a few regexes
-
-    # Remove (?...) blocks since they can do evals
-    $search =~ s/\(\?[^)]+\)//g;
-    # Remove backticks since they can run processes
-    $search =~ s/\`//g;
-    # Remove variable references
-    $search =~ s/\$//g;
-    # Quote '/'s
-    $search =~ s%/%\\/%g;
-
-
-    # Prefix with flags
-    $search=$flags.$search;
-
-    my(@lines)=Channel_get_log_lines($channel);
-
-    my(@results);
-    eval "\@results=grep(/$search/, \@lines)";
-    if($!) {
-      @results=();
-      my $msg=$!; $msg=~ s/^ at .+$//;
-      $output.=qq{ Sorry, search failed with error - $msg};
-    } elsif (!@results) {
-      $output.=qq{ Sorry, nothing found for '$orig_search'};
-      $output.=qq{ (internally: "$search")} if $orig_search ne $search;
-    } elsif ($mail) {
-      my $userhost=$event->userhost;
-
-      my $pl=(@results != 1) ? 's' : '';
-      my $count=scalar(@results);
-      if(open(PIPE,"|/usr/lib/sendmail -t")) {
-	my $title=$channel->{Title};
-	print PIPE "From: $::IRC_Name\n";
-	print PIPE "To: $mail\n";
-	print PIPE "Subject: Results of search '$orig_search' on $title\n";
-	print PIPE "\n";
-	print PIPE "This email is the result of a search by\n";
-        print PIPE "nick $from_nick ($userhost) on the\n";
-	print PIPE "$title\n";
-	print PIPE "This channel is logged at $::Log_URI\n";
-	print PIPE "\n";
-	print PIPE "$count result$pl follow:\n";
-	print PIPE join("\n", reverse @results);
-	close(PIPE);
-	$output.=qq{ Mailed $count result$pl to $mail};
-	log_admin_event($self, $event, time, "Search results from '$orig_search' mailed to $mail");
-      } else {
-	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
-      }
-    } else {
-      my $size=scalar(@results);
-      my $pl=($size != 1) ? 's' : '';
-      $output.=" I found $size answer$pl for '$orig_search'";
-
-      my $last=$first+$count-1;
-      $last=$size-1 if $last > $size-1;
-      if($first !=0 || $last != $size-1) {
-	$output.=" (showing $first...$last)";
-      }
-      $self->privmsg($dest_nick, $output);
-
-      # Set result nick to me
-      $event->nick($::Nick);
-
-      log_event($self, $event, time, $output) unless $is_private;
-
-      my $count=0;
-      for(my $i=$first; $i <= $last; $i++) {
-	sleep(1);
-	$output="$i) ".$results[$i];
-	$self->privmsg($dest_nick, $output);
-	log_event($self, $event, time, $output) unless $is_private;
-	$count++;
-	last if $count > $::Max_Max_Results;
-      }
-      return;
-    }
+    $output.=qq{Sorry, searching removed.};
   } else {
     $output.="I don't understand '$command', $from_nick.  Try /msg $::Nick help";
   }
