@@ -260,18 +260,18 @@ sub open_logs ($) {
       $rdf_log_file = "$log_dir/$date.rdf";
   } 
 
-  # Failed!
-  if (!open($::Channel_TEXTLOG, ">>$text_log_file")) {
+  $::Channel_TEXTLOG=new IO::File;
+  if (!$::Channel_TEXTLOG->open(">>$text_log_file")) {
     $self->privmsg("#$channel", "failed to open text log file, quitting - $!");
     exit(0);
   }
 
   $::Channel_TEXTLOG->autoflush(1);
 
-  # Failed!
   if ($::LogHTML) {
     if (!-r $html_log_file) {	# new file?
-      if (!open($::Channel_HTMLLOG, ">$html_log_file")) {
+      $::Channel_HTMLLOG=new IO::File;
+      if (!$::Channel_HTMLLOG->open(">$html_log_file")) {
 	$self->privmsg("#$channel", "failed to open HTML log file, quitting - $!");
 	exit(0);
       }
@@ -286,7 +286,7 @@ sub open_logs ($) {
  <title>IRC log of $escaped_chan on $date</title>
 EOT
       my $progID = '$Id$';
-      $progID =~ s/\$/&#36;/;	# Hide the CVS tag from CVS in the output
+      $progID =~ s/\$/\&#36;/;	# Hide the CVS tag from CVS in the output
       print $::Channel_HTMLLOG '<meta name="generator" content="'.$progID.'" />';
       print $::Channel_HTMLLOG <<"EOT";
 
@@ -299,12 +299,13 @@ EOT
 <p><em>Timestamps are in UTC.</em></p>
 <dl class="IRC">
 EOT
-    print $::Channel_HTMLLOG $::html_suffix;
+      print $::Channel_HTMLLOG $::html_suffix;
     } else {
-	if (!open($::Channel_HTMLLOG, "+<$html_log_file")) {
-	    $self->privmsg("#$channel", "failed to append HTML log file, quitting - $!");
-	    exit(0);
-	}
+      $::Channel_HTMLLOG=new IO::File;
+      if (!$::Channel_HTMLLOG->open("+<$html_log_file")) {
+        $self->privmsg("#$channel", "failed to append HTML log file, quitting - $!");
+        exit(0);
+      }
     }
 
     # figure out whether stdio expands NEWLINE to CRLF
@@ -320,7 +321,8 @@ EOT
   }
 
   if(!-r $rdf_log_file) {
-    if (!open($::Channel_RDFLOG, ">$rdf_log_file")) {
+    $::Channel_RDFLOG=new IO::File;
+    if (!$::Channel_RDFLOG->open(">$rdf_log_file")) {
       $self->privmsg("#$channel", "failed to open RDF log file, quitting - $!");
       exit(0);
     }
@@ -338,7 +340,8 @@ EOT
 EOT
     print $::Channel_RDFLOG $::rdf_suffix;
   } else {
-    if (!open($::Channel_RDFLOG, "+<$rdf_log_file")) {
+    $::Channel_RDFLOG=new IO::File;
+    if (!$::Channel_RDFLOG->open("+<$rdf_log_file")) {
       $self->privmsg("#$channel", "failed to append to RDF log file, quitting - $!");
       exit(0);
     }
@@ -374,11 +377,14 @@ sub log_event ($$$;$) {
 
   # if we're using dated logs and we passed midnight, start new logs
   if (! defined $::LogName && ($tm[2] < $::Channel_hour)) {
-      close $::Channel_TEXTLOG;
+      $::Channel_TEXTLOG->close;
+      $::Channel_TEXTLOG=undef;
       if ($::LogHTML) {
-	  close $::Channel_HTMLLOG;
+	  $::Channel_HTMLLOG->close;
+	  $::Channel_HTMLLOG=undef;
       }
-      close $::Channel_RDFLOG;
+      $::Channel_RDFLOG->close;
+      $::Channel_RDFLOG=undef;
       open_logs(($event->to)[0]);
   }
 
@@ -766,11 +772,14 @@ sub command_for_me ($$$$$) {
   }
 
   if($command=~ /^(?:sync)/i) {
-    close $::Channel_TEXTLOG;
+    $::Channel_TEXTLOG->close;
+    $::Channel_TEXTLOG=undef;
     if ($::LogHTML) {
-	close $::Channel_HTMLLOG;
+	$::Channel_HTMLLOG->close;
+	$::Channel_HTMLLOG=undef;
     }
-    close $::Channel_RDFLOG;
+    $::Channel_RDFLOG->close;
+    $::Channel_RDFLOG=undef;
     open_logs(($event->to)[0]);
     return;
   }
@@ -1063,7 +1072,7 @@ logger - RDF IRC Chat Logger
 
 =head1 SYNOPSIS
 
-  logger PASSWORD CHANNEL-URI CHANNEL-TITLE LOG-DIR LOG-URI > logger.log
+  logger [options...] PASSWORD CHANNEL-URI CHANNEL-TITLE LOG-DIR LOG-URI > logger.log
 
 An irc logger bot that automatically generated logs for various IRC
 chat channels.  Call it with parameters above where
@@ -1073,6 +1082,15 @@ chat channels.  Call it with parameters above where
   CHANNEL-TITLE A title to use in welcome messages
   LOG-DIR       Root directory to start writing logs
   LOG-URI       URI of where the logs appear on the web
+
+and options are:
+
+  -noaction      Don't log /me messages
+  -html          Write an XHTML log as well as text and RDF.
+  -log LOGFILE   Write logs to LOGFILE rather than the default
+                 of CHANNEL/YYYY-MM-DD (".txt", ".html", and ".rdf"
+                 will be appended)
+  -nick NICK     Use IRC nick NICK
 
 =head1 DESCRIPTION
 
