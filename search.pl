@@ -4,8 +4,6 @@
 #
 # $Id$
 #
-# Build XHTML logs from RDF/XML ones made by logger
-#
 # (C) Copyright 2004 Dave Beckett, ILRT, University of Bristol
 # http://purl.org/net/dajobe/
 #
