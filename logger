@@ -102,8 +102,13 @@ sub get_logs () {
     open(LOG, "$log_dir/$file") or next;
     
     # Append to list, reverse date sorted list - i.e. older entries at end 
-    push(@results, reverse map {chomp, $_} <LOG>);
+    my(@lines);
+    while(<LOG>) {
+      chomp;
+      push(@lines, $_) if length $_;
+    };
     close(LOG);
+    push(@results, reverse @lines);
   }
   closedir(DIR);
 
@@ -169,6 +174,9 @@ sub on_public {
   my @to = $event->to;
   my ($nick, $mynick) = ($event->nick, $self->nick);
   my $arg = join(' ', $event->args);
+
+  # Private stuff
+  return if $arg =~ /^\[off\]/i;
 
   if ($arg =~ /^$mynick,\s+(.*)$/) {
     command_for_me($self, $nick, $1, 0);
@@ -300,7 +308,7 @@ sub command_for_me ($$$$) {
       my $pl=(@results != 1) ? 's' : '';
       $output.=" I found ".scalar(@results)." answer$pl";
       if(@results > $max) {
-	$output.="(showing first $max)";
+	$output.=" (showing first $max)";
       }
       $output.="\n";
       $conn->notice($dest_nick, $output);
