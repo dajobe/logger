@@ -1,0 +1,164 @@
+#!/usr/bin/perl -w
+use Net::IRC;
+use File::Path;
+
+my $irc = new Net::IRC;
+
+my $Nick='logger';
+my $Channel='#ilrt';
+my $Server='my.desire.org';
+my $Port='6667';
+
+my $Log_Root='/home/logger/chat-logs';
+
+
+######################################################################
+%ENV=();
+$ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
+
+my $host;
+if(`uname -n` =~ /^([-\w.]+)$/) {
+  $host=$1;
+} else {
+  $host='unknown';
+}
+
+
+my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
+
+
+my $conn = $irc->newconn(Nick    => $Nick,
+			 Server  => 'my.desire.org',
+			 Port    =>  6667,
+			 Ircname => 'Chat Logger',
+			 LocalAddr => $host);
+
+
+######################################################################
+# Logging
+
+sub log_event ($$) {
+  my($t, $msg)=@_;
+
+  my $c=$Channel;
+  $c=~ s/\W//g;
+  my $log_dir="$Log_Root/$Server:$Port/$c/";
+
+  mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
+  # Failed!
+  if (! -d $log_dir) {
+    $conn->privmsg($Channel, "failed to create chat log dir, quitting");
+    exit(0);
+  }
+
+  my @tm = localtime($t);
+  $tm[5]+= 1900; $tm[4]++;
+  my $date_time = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+			  $tm[5], $tm[4], $tm[3],
+			  $tm[2], $tm[1], $tm[0]);
+  
+  my $log_file = sprintf("$log_dir/%04d-%02d.log", $tm[5], $tm[4]);
+  
+  # Failed!
+  if (!open(LOG, ">>$log_file")) {
+    $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+    exit(0);
+  }
+  
+  print LOG "$date_time $msg\n";
+  close(LOG);
+}
+
+
+######################################################################
+# Global events
+
+# What to do when logger successfully connects.
+sub on_connect {
+  my ($self, $event) = @_;
+  
+  $self->join($Channel);
+}
+
+
+# Prints the names of people in a channel when we enter.
+sub on_names {
+  my ($self, $event) = @_;
+  my (@list, $channel) = ($event->args);    # eat yer heart out, mjd!
+  
+  # splice() only works on real arrays. Sigh.
+  ($channel, @list) = splice @list, 2;
+  
+  log_event(time, "Users on $channel: @list");
+}
+
+
+# Reconnect to the server when we die.
+sub on_disconnect {
+  my ($self, $event) = @_;
+  
+  log_event(time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+
+  log_event(time, "Attempting to reconnect");
+  $self->connect();
+}
+
+
+######################################################################
+# Per connection events
+
+
+# When received a private message
+sub on_msg {
+  my($self,$event)=@_;
+  my $nick = $event->nick;
+  
+  log_event(time, "*$nick* asked me ".join(' ', $event->args));
+}
+
+
+# What to do when we receive channel text.
+sub on_public {
+  my ($self, $event) = @_;
+  my @to = $event->to;
+  my ($nick, $mynick) = ($event->nick, $self->nick);
+  my ($arg) = ($event->args);
+
+  log_event(time, "<$nick> ".join(' ',$event->args));
+}
+
+
+# What to do when someone leaves a channel logger is on.
+sub on_part {
+  my ($self, $event) = @_;
+  my ($channel) = ($event->to)[0];
+  
+  log_event(time, sprintf("%s has left channel", $event->nick));
+}
+
+
+# What to do when someone joins a channel logger is on.
+sub on_join {
+  my ($self, $event) = @_;
+  my ($channel) = ($event->to)[0];
+  
+  log_event(time, sprintf("%s (%s) has joined channel", $event->nick, $event->userhost));
+}
+
+
+
+
+# Install handlers
+# On 'end of MOTD' event, join ilrt channel
+$conn->add_global_handler(376, \&on_connect);
+$conn->add_global_handler(353, \&on_names);
+$conn->add_global_handler('disconnect', \&on_disconnect);
+
+$conn->add_handler('msg', \&on_msg);
+$conn->add_handler('public', \&on_public);
+$conn->add_handler('part', \&on_part);
+$conn->add_handler('join', \&on_join);
+$conn->add_handler('kick', \&on_disconnect);
+
+
+$irc->start;
