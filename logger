@@ -60,72 +60,14 @@ $::Max_Max_Results=20;
 
 $::LogName=undef;
 $::LogActionMsgs=1;
-$::LogHTML=0;
 $::LogUserHosts=0;
+
+@::LogTypes=qw(rdf html text);
+@::DefaultLogTypes=qw(rdf text);
 
 # ugly system dependencies
 # MSWin does not permit ":" in file path components
 $::PortSep = $^O eq "MSWin32" ? "/" : ":";
-
-
-# Global variables
-
-# IRC object
-$::IRC=undef;
-
-# root dir of logs
-$::Log_Root='';
-
-# place on the web this corresponds to
-$::Log_URI='';
-
-# System password
-$::Password='';
-
-# Print welcome message?
-$::Do_Welcome=0;
-
-# True if leaving (so don't reconnect)
-$::Departing=0;
-
-# True if connecting (don't log server notices)
-$::Connecting=0;
-
-# Administrative messages log
-$::Admin_LOG=undef;
-
-# Process ID
-$::PID_File=undef;
-
-# Global Variables that should be per-Channel
-# title
-%::Config=();
-
-$::Channel_Title='';
-
-# irc:: URI
-$::Channel_URI='';
-
-# topic of channel
-$::Channel_Topic='';
-
-# Last ID seen
-$::Channel_Last_ID='';
-
-# True if logging
-$::Channel_Listening=0;
-
-# Text log
-$::Channel_TEXTLOG=undef;
-
-# HTML log
-$::Channel_HTMLLOG=undef;
-
-# RDF log
-$::Channel_RDFLOG=undef;
-
-# Track midnight rollover
-$::Channel_hour=0;
 
 $::html_suffix="</dl>\n</body>\n</html>\n";
 $::html_suffix_length=undef;	# account for \n to \r\n expansion in stdio
@@ -159,6 +101,49 @@ $::rdf_suffix_length=undef;	# account for \n to \r\n expansion in stdio
     qr|(prospero://)([^] \)>"\'\n[\t\\]*)(.*)$|,
     qr|(mailto:)([^] \)>"\'\n[\t\\]*)(.*)$|,
     );
+
+
+
+# Global variables
+
+# IRC object
+$::IRC=undef;
+
+# root dir of logs
+$::Log_Root='';
+
+# place on the web this corresponds to
+$::Log_URI='';
+
+# System password
+$::Password='';
+
+# Print welcome message?
+$::Do_Welcome=0;
+
+# True if leaving (so don't reconnect)
+$::Departing=0;
+
+# True if connecting (don't log server notices)
+$::Connecting=0;
+
+# Administrative messages log
+$::Admin_LOG=undef;
+
+# Process ID
+$::PID_File=undef;
+
+
+# Global Variables that should be per-Channel
+
+# 1 global channel var; still preparing to make >1
+$::Channel={};
+
+
+# Keep -w happy
+sub mention {
+  my $dummy=@::LogTypes;
+}
 
 ######################################################################
 package URI::irc;
@@ -197,18 +182,21 @@ Usage: $::program [option...] password channel-URI channel-title log-dir log-URI
   and channel-URI is like irc://host[:port]/channel
 EOT
 
+  my $log_html=0;
   die $usage unless GetOptions ('action!' => \$::LogActionMsgs,
-		       'html!'	 => \$::LogHTML,
+		       'html!'	 => \$log_html,
 		       'log=s'	 => \$::LogName,
 		       'nick=s'	 => \$::Nick,
 		       'userhost!' => \$::LogUserHosts,
 		      ) && @ARGV==5;
 
+  push(@::DefaultLogTypes, 'html') if $log_html;
+
   my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
   my $uri;
   eval '$uri=new URI $uri_string';
-  die "$::program: '$::Channel_URI' does not look like an IRC URI\n" 
+  die "$::program: '$uri_string' does not look like an IRC URI\n" 
     if ($@ || !$uri);
 
 
@@ -234,279 +222,135 @@ EOT
 
   # FIXME - pid_file should not have channel in it, when logger
   # handles multiple channels
-  $::PID_File=$::Log_Root.'/logger-'.$uri->channel.'.pid';
+  my $channel_name=$uri->channel;
+  $::PID_File=$::Log_Root.'/logger-'.$channel_name.'.pid';
   open(PID,">$::PID_File");
   print PID "$$\n";
   close(PID);
 
   $::IRC = new Net::IRC;
 
-  join_channel($uri, $channel_title);
+  &Channel_new($::Channel);
+
+  Channel_join($::Channel, $uri, $channel_title);
 
   # Never returns
   $::IRC->start;
 }
 
+
+# MAIN CODE
 &main;
 
 exit 0;
 
-sub open_logs ($) {
-  my ($self)=@_;
-
-  my $uri=$::Channel_URI;
-  my $channel=$uri->channel;
-
-  my $text_log_file=undef;
-  my $html_log_file=undef;
-  my $rdf_log_file=undef;
-
-  my @tm = gmtime;
-  $tm[5]+= 1900; $tm[4]++;
-  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
-
-  if (defined $::LogName) {
-      $text_log_file = "$::LogName.txt";
-      $html_log_file = "$::LogName.html";
-      $rdf_log_file = "$::LogName.rdf";
-  } else {
-      my $log_dir=log_dir_for_channel($uri);
-
-      mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
-      # Failed!
-      if (! -d $log_dir) {
-	$self->privmsg("#$channel", "failed to create chat log dir, quitting");
-	unlink $::PID_File;
-	exit(0);
-      }
-
-      $text_log_file = "$log_dir/$date.txt";
-      $html_log_file = "$log_dir/$date.html";
-      $rdf_log_file = "$log_dir/$date.rdf";
-  } 
-
-  $::Channel_TEXTLOG=new IO::File;
-  if (!$::Channel_TEXTLOG->open(">>$text_log_file")) {
-    $self->privmsg("#$channel", "failed to open text log file, quitting - $!");
-    unlink $::PID_File;
-    exit(0);
-  }
-
-  $::Channel_TEXTLOG->autoflush(1);
-
-  if ($::LogHTML) {
-    if (!-r $html_log_file) {	# new file?
-      $::Channel_HTMLLOG=new IO::File;
-      if (!$::Channel_HTMLLOG->open(">$html_log_file")) {
-	$self->privmsg("#$channel", "failed to open HTML log file, quitting - $!");
-	unlink $::PID_File;
-	exit(0);
-      }
-
-      my $escaped_chan = xml_escape($channel);
-      print $::Channel_HTMLLOG <<"EOT";
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
- <title>IRC log of $escaped_chan on $date</title>
-EOT
-      my $progID = '$Id$';
-      $progID =~ s/\$/\&#36;/;	# Hide the CVS tag from CVS in the output
-      print $::Channel_HTMLLOG '<meta name="generator" content="'.$progID.'" />';
-      print $::Channel_HTMLLOG <<"EOT";
-
- <style type="text/css">
-  .IRC { font-family: sans-serif }
- </style>
-</head>
-<body>
-<h1>IRC log of $escaped_chan on $date</h1>
-<p><em>Timestamps are in UTC.</em></p>
-<dl class="IRC">
-EOT
-      print $::Channel_HTMLLOG $::html_suffix;
-    } else {
-      $::Channel_HTMLLOG=new IO::File;
-      if (!$::Channel_HTMLLOG->open("+<$html_log_file")) {
-        $self->privmsg("#$channel", "failed to append HTML log file, quitting - $!");
-        unlink $::PID_File;
-        exit(0);
-      }
-    }
-
-    # figure out whether stdio expands NEWLINE to CRLF
-    if (!defined $::html_suffix_length) {
-	seek($::Channel_HTMLLOG, 0, 2);	# find the end
-	my $curlen = tell($::Channel_HTMLLOG);
-	print $::Channel_HTMLLOG $::html_suffix;
-	$::html_suffix_length = tell($::Channel_HTMLLOG) - $curlen;
-	truncate ($::Channel_HTMLLOG, $curlen);
-    }
-
-    $::Channel_HTMLLOG->autoflush(1);
-  }
-
-  if(!-r $rdf_log_file) {
-    $::Channel_RDFLOG=new IO::File;
-    if (!$::Channel_RDFLOG->open(">$rdf_log_file")) {
-      $self->privmsg("#$channel", "failed to open RDF log file, quitting - $!");
-      unlink $::PID_File;
-      exit(0);
-    }
-
-    my $escaped_chan_uri = xml_escape($::Channel_URI);
-    print $::Channel_RDFLOG <<"EOT";
-<?xml version="1.0" encoding="UTF-8"?>
-<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-         xmlns:dc="http://purl.org/dc/elements/1.1/"
-         xmlns:wn="http://xmlns.com/wordnet/1.6/"
-         xmlns:foaf="http://xmlns.com/foaf/0.1/">
-<foaf:ChatChannel rdf:about="$escaped_chan_uri">
-  <foaf:chatEventList>
-    <rdf:Seq>
-EOT
-    print $::Channel_RDFLOG $::rdf_suffix;
-  } else {
-    $::Channel_RDFLOG=new IO::File;
-    if (!$::Channel_RDFLOG->open("+<$rdf_log_file")) {
-      $self->privmsg("#$channel", "failed to append to RDF log file, quitting - $!");
-      unlink $::PID_File;
-      exit(0);
-    }
-  }
-
-  # figure out whether stdio expands NEWLINE to CRLF
-  if (!defined $::rdf_suffix_length) {
-      seek($::Channel_RDFLOG, 0, 2);	# find the end
-      my $curlen = tell($::Channel_RDFLOG);
-      print $::Channel_RDFLOG $::rdf_suffix;
-      $::rdf_suffix_length = tell($::Channel_RDFLOG) - $curlen;
-      truncate ($::Channel_RDFLOG, $curlen);
-  }
-
-  $::Channel_RDFLOG->autoflush(1);
-}
-
 
 ######################################################################
-# Logging
+# Methods on 'logger Channel' object
+# package Logger::Channel;
 
-sub log_event ($$$;$) {
-  my($self, $event, $t, $msg)=@_;
-  my $nick=$event->nick;
+sub Channel_new ($) {
+  my $self=shift;
 
-  return if !$::Channel_Listening;
+  $self->{Title}='';
 
-  my @tm = gmtime($t);
-  $tm[5]+= 1900; $tm[4]++;
-  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
-  my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
-  my $date_time="$date $time";
+  # irc:: URI
+  $self->{URI}='';
 
-  # if we're using dated logs and we passed midnight, start new logs
-  if (! defined $::LogName && ($tm[2] < $::Channel_hour)) {
-      $::Channel_TEXTLOG->close;
-      $::Channel_TEXTLOG=undef;
-      if ($::LogHTML) {
-	  $::Channel_HTMLLOG->close;
-	  $::Channel_HTMLLOG=undef;
-      }
-      $::Channel_RDFLOG->close;
-      $::Channel_RDFLOG=undef;
-      open_logs(($event->to)[0]);
+  # topic of channel
+  $self->{Topic}='';
+
+  # Last ID seen
+  $self->{Last_ID}='';
+
+  # True if logging
+  $self->{Listening}=0;
+
+  # Track midnight rollover
+  $self->{hour}=0;
+
+  # NET::IRC connection object
+  $self->{CONN}=undef;
+
+  $self->{LogTypes}=[@::DefaultLogTypes];
+  for my $type (@{$self->{LogTypes}}) {
+    $self->{FH}->{$type}=undef;
   }
 
-  $::Channel_hour = $tm[2];
+}
 
-  my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
-  print $::Channel_TEXTLOG "$time $text_msg\n";
+@::Channels=();
 
-  # Make a legal XML id from the time
-  my $ID="T$time"; $ID =~ s/:/-/g;
+sub Channel_join($$$) {
+  my($self, $uri, $title)=@_;
 
-  # add a unique suffix if necessary
-  if(length($::Channel_Last_ID) != length($ID)) {
-    # If last ID was in same second, need to start from next
-    # ID HH-MM-SS-X and increment X
-    # otherwise, new ID is OK
-    if ($::Channel_Last_ID =~ /^$ID-(\d+)$/) {
-      $ID.="-".($1+1);
-    }
-  } elsif($ID eq $::Channel_Last_ID) {
-    # Else if was same as last ID, must be first duplicate of this
-    # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
-    # it unique HH-MM-SS-1
-    $ID.="-1";
+  my $channel_name=$uri->channel;
+
+  $self->{URI}=$uri;
+  $self->{Title}=$title;
+  $self->{Listening}=1;
+
+  push(@::Channels, $self);
+
+  my $user_name=$channel_name."-logger";
+
+  my $conn = $::IRC->newconn(Nick    => $::Nick,
+			     Server  => $uri->host,
+			     Port    => $uri->port,
+			     Ircname => $::IRC_Name,
+			     Username => $user_name,
+			     LocalAddr => $::Host);
+
+  die "$::program: Cannot create connection to $uri\n" 
+    unless $conn;
+
+  $self->{CONN}=$conn;
+  
+  Channel_open_logs($self);
+
+  # Install handlers
+  # On 'end of MOTD' event, join ilrt channel
+  $conn->add_global_handler(376, \&on_connect);
+  $conn->add_global_handler(353, \&on_names);
+  $conn->add_global_handler('disconnect', \&on_disconnect);
+
+  $conn->add_handler('msg', \&on_msg);
+  $conn->add_handler('public', \&on_public);
+  $conn->add_handler('part', \&on_part);
+  $conn->add_handler('join', \&on_join);
+  $conn->add_handler('kick', \&on_disconnect);
+  $conn->add_handler('caction', \&on_caction);
+  $conn->add_handler('quit', \&on_quit);
+  $conn->add_handler('nick', \&on_nick);
+  $conn->add_handler('nicknameinuse', \&on_nicknameinuse);
+  $conn->add_handler('topic', \&on_topic);
+  $conn->add_handler('notice', \&on_notice);
+
+}
+
+sub Channel_by_name($) {
+  my $name=shift;
+  for my $channel (@::Channels) {
+    return $channel if $channel->uri->channel eq $name;
   }
-  $::Channel_Last_ID=$ID;
-
-  my @uris = getURI($msg);
-
-  if ($::LogHTML) {
-    # seek back
-    # @@ note that this assumes the existing data was NL-expanded identically
-    seek($::Channel_HTMLLOG, -$::html_suffix_length, 2); # 2= SEEK_END
-
-    my $escapedMsg = cvs_escape($msg);
-    if ($#uris > -1) {
-	$escapedMsg = URI2link($escapedMsg, @uris);
-    }
-
-    print $::Channel_HTMLLOG qq{<dt id="$ID">$time [$nick]</dt><dd>}.$escapedMsg.qq{</dd>\n};
-    print $::Channel_HTMLLOG $::html_suffix;
-  }
-
-  # seek back
-  # @@ note that this assumes the existing data was NL-expanded identically
-  seek($::Channel_RDFLOG, -$::rdf_suffix_length, 2); # 2= SEEK_END
-
-  print $::Channel_RDFLOG <<"EOT";
-      <rdf:li>
-       <foaf:chatEvent rdf:ID="$ID">
-        <dc:date>${date}T${time}Z</dc:date>
-EOT
-  print $::Channel_RDFLOG qq{        <dc:description>}.cvs_escape($msg).qq{</dc:description>\n};
-  print $::Channel_RDFLOG qq{        <dc:creator><wn:Person foaf:nick="$nick"/></dc:creator>\n} if $nick;
-  foreach my $uri (@uris) {
-    $uri = xml_escape($uri);
-    print $::Channel_RDFLOG qq{        <dc:relation rdf:resource="$uri"/>\n};
-  }
-  print $::Channel_RDFLOG qq{       </foaf:chatEvent>\n};
-  print $::Channel_RDFLOG qq{      </rdf:li>\n};
-  print $::Channel_RDFLOG $::rdf_suffix;
 }
 
 
-sub log_dir_for_channel ($) {
-  my $uri=shift;
+sub Channel_get_log_dir ($) {
+  my $self=shift;
 
-  my $channel=$uri->channel; $channel=~ s/\W//g;
+  my $uri=$self->{URI};
+  my $channel_name=$uri->channel; $channel_name=~ s/\W//g;
 
-  return $::Log_Root.'/'.$uri->host.$::PortSep.$uri->port.'/'.$channel.'/';
-}
-
-
-sub log_admin_event ($$$;$) {
-  my($self, $event, $t, $msg)=@_;
-  my $nick=$event->nick;
-
-  my @tm = gmtime($t);
-  $tm[5]+= 1900; $tm[4]++;
-  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
-  my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
-
-  my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
-  print $::Admin_LOG "${date}Z${time} $text_msg\n";
+  return $::Log_Root.'/'.$uri->host.$::PortSep.$uri->port.'/'.$channel_name.'/';
 }
 
 
 # %% RRS: make this work for a specified LogName
-sub get_logs ($$) {
-  my($self,$uri)=@_;
+sub Channel_get_log_lines ($) {
+  my $self=shift;
 
-  my $log_dir=log_dir_for_channel($uri);
+  my $log_dir=Channel_get_log_dir($self);
 
   return () if !opendir(DIR, $log_dir);
 
@@ -535,6 +379,268 @@ sub get_logs ($$) {
 }
 
 
+sub Channel_open_logs ($) {
+  my $self=shift;
+
+  my $conn=$self->{CONN};
+  my $uri=$self->{URI};
+  my $channel_name=$uri->channel;
+
+  my @tm = gmtime;
+  $tm[5]+= 1900; $tm[4]++;
+  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
+
+  my(%log_files);
+  
+  if (defined $::LogName) {
+    for my $type (@{$self->{LogTypes}}) {
+      $log_files{$type}="$::LogName.$type";
+    }
+  } else {
+      my $log_dir=Channel_get_log_dir($self);
+
+      mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
+      # Failed!
+      if (! -d $log_dir) {
+	$conn->privmsg("#$channel_name", "failed to create chat log dir, quitting");
+	unlink $::PID_File;
+	exit(0);
+      }
+
+    for my $type (@{$self->{LogTypes}}) {
+      $log_files{$type}="$log_dir/$date.$type";
+    }
+  } 
+
+
+  if (grep($_ eq 'text', @{$self->{LogTypes}})) {
+    my $text_log_fh=$self->{FH}->{text}=new IO::File;
+    my $text_log_file=$log_files{text};
+    
+    if (!$self->{FH}->{text}->open(">>$text_log_file")) {
+      $conn->privmsg("#$channel_name", "failed to open text log file, quitting - $!");
+      unlink $::PID_File;
+      exit(0);
+    }
+
+    $text_log_fh->autoflush(1);
+  }
+
+
+  if (grep($_ eq 'html', @{$self->{LogTypes}})) {
+    my $html_log_fh;
+    my $html_log_file=$log_files{html};
+
+    if (!-r $html_log_file) {	# new file?
+      $html_log_fh=$self->{FH}->{html}=new IO::File;
+      if (!$html_log_fh->open(">$html_log_file")) {
+	$conn->privmsg("#$channel_name", "failed to open HTML log file, quitting - $!");
+	unlink $::PID_File;
+	exit(0);
+      }
+
+      my $escaped_chan = xml_escape($channel_name);
+      print $html_log_fh <<"EOT";
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+ <title>IRC log of $escaped_chan on $date</title>
+EOT
+      my $progID = '$Id$';
+      $progID =~ s/\$/\&#36;/g;	# Hide the CVS tag from CVS in the output
+      print $html_log_fh '<meta name="generator" content="'.$progID.'" />';
+      print $html_log_fh <<"EOT";
+
+ <style type="text/css">
+  .IRC { font-family: sans-serif }
+ </style>
+</head>
+<body>
+<h1>IRC log of $escaped_chan on $date</h1>
+<p><em>Timestamps are in UTC.</em></p>
+<dl class="IRC">
+EOT
+      print $html_log_fh $::html_suffix;
+    } else {
+      $html_log_fh=$self->{FH}->{html}=new IO::File;
+      if (!$html_log_fh->open("+<$html_log_file")) {
+        $conn->privmsg("#$channel_name", "failed to append HTML log file, quitting - $!");
+        unlink $::PID_File;
+        exit(0);
+      }
+    }
+
+    # figure out whether stdio expands NEWLINE to CRLF
+    if (!defined $::html_suffix_length) {
+	seek($html_log_fh, 0, 2);	# find the end
+	my $curlen = tell($html_log_fh);
+	print $html_log_fh $::html_suffix;
+	$::html_suffix_length = tell($html_log_fh) - $curlen;
+	truncate ($html_log_fh, $curlen);
+    }
+
+    $html_log_fh->autoflush(1);
+  }
+
+
+  # Note RDF log type is not optional ;-)
+  my $rdf_log_fh;
+  my $rdf_log_file=$log_files{rdf};
+  if(!-r $rdf_log_file) {
+    $rdf_log_fh=$self->{FH}->{rdf}=new IO::File;
+
+    if (!$rdf_log_fh->open(">$rdf_log_file")) {
+      $conn->privmsg("#$channel_name", "failed to open RDF log file, quitting - $!");
+      unlink $::PID_File;
+      exit(0);
+    }
+
+    my $escaped_chan_uri = xml_escape($self->{URI});
+    print $rdf_log_fh <<"EOT";
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:wn="http://xmlns.com/wordnet/1.6/"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/">
+<foaf:ChatChannel rdf:about="$escaped_chan_uri">
+  <foaf:chatEventList>
+    <rdf:Seq>
+EOT
+    print $rdf_log_fh $::rdf_suffix;
+  } else {
+    $rdf_log_fh=$self->{FH}->{rdf}=new IO::File;
+    if (!$rdf_log_fh->open("+<$rdf_log_file")) {
+      $conn->privmsg("#$channel_name", "failed to append to RDF log file, quitting - $!");
+      unlink $::PID_File;
+      exit(0);
+    }
+  }
+
+  # figure out whether stdio expands NEWLINE to CRLF
+  if (!defined $::rdf_suffix_length) {
+      seek($rdf_log_fh, 0, 2);	# find the end
+      my $curlen = tell($rdf_log_fh);
+      print $rdf_log_fh $::rdf_suffix;
+      $::rdf_suffix_length = tell($rdf_log_fh) - $curlen;
+      truncate ($rdf_log_fh, $curlen);
+  }
+
+  $self->{FH}->{rdf}->autoflush(1);
+}
+
+
+######################################################################
+# Logging - methods on Net::IRC::Connection object
+
+sub log_event ($$$;$) {
+  my($self, $event, $t, $msg)=@_;
+  my $nick=$event->nick;
+
+  return if !$::Channel->{Listening};
+
+  my @tm = gmtime($t);
+  $tm[5]+= 1900; $tm[4]++;
+  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
+  my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
+  my $date_time="$date $time";
+
+  # if we're using dated logs and we passed midnight, start new logs
+  if (! defined $::LogName && ($tm[2] < $::Channel->{hour})) {
+    for my $type ($::Channel->{LogTypes}) {
+      $::Channel->{FH}->{$type}->close;
+      $::Channel->{FH}->{$type}=undef;
+    }
+    Channel_open_logs($::Channel);
+  }
+
+  $::Channel->{hour} = $tm[2];
+
+
+  if (grep($_ eq 'text', @{$::Channel->{LogTypes}})) {
+    my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
+    my $text_log_fh=$::Channel->{FH}->{text};
+    print $text_log_fh "$time $text_msg\n";
+  }
+
+
+  # Make a legal XML id from the time
+  my $ID="T$time"; $ID =~ s/:/-/g;
+
+  # add a unique suffix if necessary
+  if(length($::Channel->{Last_ID}) != length($ID)) {
+    # If last ID was in same second, need to start from next
+    # ID HH-MM-SS-X and increment X
+    # otherwise, new ID is OK
+    if ($::Channel->{Last_ID} =~ /^$ID-(\d+)$/) {
+      $ID.="-".($1+1);
+    }
+  } elsif($ID eq $::Channel->{Last_ID}) {
+    # Else if was same as last ID, must be first duplicate of this
+    # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
+    # it unique HH-MM-SS-1
+    $ID.="-1";
+  }
+  $::Channel->{Last_ID}=$ID;
+
+  my @uris = getURI($msg);
+
+  if (grep($_ eq 'html', @{$::Channel->{LogTypes}})) {
+    my $html_log_fh=$::Channel->{FH}->{html};
+
+    # seek back
+    # @@ note that this assumes the existing data was NL-expanded identically
+    seek($html_log_fh, -$::html_suffix_length, 2); # 2= SEEK_END
+
+    my $escapedMsg = cvs_escape($msg);
+    if ($#uris > -1) {
+	$escapedMsg = URI2link($escapedMsg, @uris);
+    }
+
+    print $html_log_fh qq{<dt id="$ID">$time [$nick]</dt><dd>}.$escapedMsg.qq{</dd>\n};
+    print $html_log_fh $::html_suffix;
+  }
+
+
+  my $rdf_log_fh=$::Channel->{FH}->{rdf};
+
+  # seek back
+  # @@ note that this assumes the existing data was NL-expanded identically
+  seek($rdf_log_fh, -$::rdf_suffix_length, 2); # 2= SEEK_END
+
+  print $rdf_log_fh <<"EOT";
+      <rdf:li>
+       <foaf:chatEvent rdf:ID="$ID">
+        <dc:date>${date}T${time}Z</dc:date>
+EOT
+  print $rdf_log_fh qq{        <dc:description>}.cvs_escape($msg).qq{</dc:description>\n};
+  print $rdf_log_fh qq{        <dc:creator><wn:Person foaf:nick="$nick"/></dc:creator>\n} if $nick;
+  foreach my $uri (@uris) {
+    $uri = xml_escape($uri);
+    print $rdf_log_fh qq{        <dc:relation rdf:resource="$uri"/>\n};
+  }
+  print $rdf_log_fh qq{       </foaf:chatEvent>\n};
+  print $rdf_log_fh qq{      </rdf:li>\n};
+  print $rdf_log_fh $::rdf_suffix;
+}
+
+
+
+sub log_admin_event ($$$;$) {
+  my($self, $event, $t, $msg)=@_;
+  my $nick=$event->nick;
+
+  my @tm = gmtime($t);
+  $tm[5]+= 1900; $tm[4]++;
+  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
+  my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
+
+  my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
+  print $::Admin_LOG "${date}Z${time} $text_msg\n";
+}
+
+
 ######################################################################
 # Global events
 
@@ -542,17 +648,17 @@ sub get_logs ($$) {
 sub on_connect {
   my ($self, $event) = @_;
   
-  my $channel;
+  my $channel_name;
 
-  if ($::Channel_URI->channel =~ m/[\#&]/) {
-      $channel = $::Channel_URI->channel; # don't add a prefix if one was given
+  if ($::Channel->{URI}->channel =~ m/[\#&]/) {
+      $channel_name = $::Channel->{URI}->channel; # don't add a prefix if one was given
   } else {
-      $channel ='#' . $::Channel_URI->channel; # else assume a public channel
+      $channel_name ='#' . $::Channel->{URI}->channel; # else assume a public channel
   }
 
-  $self->join($channel);
-  $::Channel_Listening=1;
-  $self->me($channel, 'is logging');
+  $self->join($channel_name);
+  $::Channel->{Listening}=1;
+  $self->me($channel_name, 'is logging');
 }
 
 
@@ -572,12 +678,12 @@ sub on_nicknameinuse {
 # Prints the names of people in a channel when we enter.
 sub on_names {
   my ($self, $event) = @_;
-  my (@list, $channel) = ($event->args);
+  my (@list, $channel_name) = ($event->args);
   
   # splice() only works on real arrays. Sigh.
-  ($channel, @list) = splice @list, 2;
+  ($channel_name, @list) = splice @list, 2;
   
-  log_event($self, $event, time, "Users on $channel: @list");
+  log_event($self, $event, time, "Users on $channel_name: @list");
 
   $::Connecting=0;
 }
@@ -605,12 +711,12 @@ sub on_disconnect {
 sub on_msg {
   my($self,$event)=@_;
   my $nick = $event->nick;
-  my $channel = $event->to;
+  my $channel_name = $event->to;
 
   return if $nick eq $::Nick;
 
   my $arg = join(' ', $event->args);
-  command_for_me($self, $event, $channel, $arg, 1);
+  command_for_me($self, $event, $channel_name, $arg, 1);
 }
 
 
@@ -648,10 +754,10 @@ sub on_caction {
 # What to do when someone leaves a channel logger is on.
 sub on_part {
   my ($self, $event) = @_;
-  my ($channel) = ($event->to)[0];
+  my ($channel_name) = ($event->to)[0];
   my $nick=$event->nick;
 
-  log_event($self, $event, time, "$nick has left channel");
+  log_event($self, $event, time, "$nick has left $channel_name");
 }
 
 
@@ -674,7 +780,6 @@ sub on_notice {
 # What to do when someone leaves a channel logger is on.
 sub on_quit {
   my ($self, $event) = @_;
-  my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
   my $msg="$nick has quit";
@@ -687,7 +792,6 @@ sub on_quit {
 # What to do when someone does /nick
 sub on_nick {
   my ($self, $event) = @_;
-  my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
   log_event($self, $event, time, "$nick is now known as $arg");
@@ -706,26 +810,26 @@ sub on_topic {
     $arg=$args[0];
     log_event($self, $event, time, "$nick has changed the topic to: $arg");
   }
-  $::Channel_Topic=$arg;
+  $::Channel->{Topic}=$arg;
 }
 
 
 # What to do when someone joins a channel logger is on.
 sub on_join {
   my ($self, $event) = @_;
-  my ($channel) = ($event->to)[0];
+  my ($channel_name) = ($event->to)[0];
   my $user_nick=$event->nick;
 
-  my $format=$::LogUserHosts ? "%s (%s) has joined $channel" :
-                               "%s has joined $channel";
+  my $format=$::LogUserHosts ? "%s (%s) has joined $channel_name" :
+                               "%s has joined $channel_name";
   log_event($self, $event, time, sprintf($format, $user_nick, $event->userhost));
 
   return if !$::Do_Welcome;
 
-  my $logging=($::Channel_Listening) ? "logging" : "not logging";
+  my $logging=($::Channel->{Listening}) ? "logging" : "not logging";
 
   my(@intro)=(
-   "Welcome to the $::Channel_Title",
+   "Welcome to the $::Channel->{Title}",
    "I'm currently $logging to $::Log_URI",
    "For extensive help do: /msg $::Nick help"
   );
@@ -740,7 +844,7 @@ sub on_join {
 
 
 sub command_for_me ($$$$$) {
-  my($self, $event, $channel, $command, $is_private)=@_;
+  my($self, $event, $channel_name, $command, $is_private)=@_;
   my $from_nick=$event->nick;
 
   $command=~s/^\s+//;
@@ -759,7 +863,7 @@ sub command_for_me ($$$$$) {
     }
   }
 
-  if($is_private && $valid_password) {
+  if($valid_password) {
 
     if($command=~ /^(?:quit|finish|terminate|die die die|exterminate|bye|excuse us)/i) {
       $::Departing=1;
@@ -795,11 +899,11 @@ sub command_for_me ($$$$$) {
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off|nolisten)/i) {
-    if($::Channel_Listening) {
+    if($::Channel->{Listening}) {
       $self->me($event->to, 'is not logging');
       # Log who turned me off BEFORE turning off logging
       log_admin_event($self, $event, time, "Logging turned off");
-      $::Channel_Listening=0;
+      $::Channel->{Listening}=0;
     } else {
       $self->me($event->to, 'is already not logging');
     }
@@ -807,9 +911,9 @@ sub command_for_me ($$$$$) {
   }
   
   if($command=~ /^(?:hello|log|listen|record|start|begin|on|listen)/i) {
-    if(!$::Channel_Listening) {
+    if(!$::Channel->{Listening}) {
       $self->me($event->to, 'is logging');
-      $::Channel_Listening=1;
+      $::Channel->{Listening}=1;
       # Log who turned me on
       log_admin_event($self, $event, time, "Logging turned on");
     } else {
@@ -819,19 +923,15 @@ sub command_for_me ($$$$$) {
   }
 
   if($command=~ /^(?:sync)/i) {
-    $::Channel_TEXTLOG->close;
-    $::Channel_TEXTLOG=undef;
-    if ($::LogHTML) {
-	$::Channel_HTMLLOG->close;
-	$::Channel_HTMLLOG=undef;
+    for my $type ($::Channel->{LogTypes}) {
+      $::Channel->{FH}->{$type}->close;
+      $::Channel->{FH}->{$type}=undef;
     }
-    $::Channel_RDFLOG->close;
-    $::Channel_RDFLOG=undef;
-    open_logs(($event->to)[0]);
+    Channel_open_logs($::Channel);
     return;
   }
 
-  if(!$::Channel_Listening) {
+  if(!$::Channel->{Listening}) {
     $output="I'm not logging. ";
   } else {
     $output="I'm logging. ";
@@ -845,11 +945,11 @@ sub command_for_me ($$$$$) {
   if($command=~ /^help/i) {
     my(@help)=(
       "The commands I know are:",
-      "  silence     - Stop logging (also: stop, off, ...)",
-      "  listen      - Start logging (also: start, on, ...)",
-      "  grep [-i] [first-last|max] <perl regex>  - Search the logs",
-      "    e.g. grep foo, grep 5 bar, grep -i things [case independent]",
-      "    append |mail EMAIL-ADDRESS to email results instead of printing",
+      " silence     - Stop logging (also: stop, off, ...)",
+      " listen      - Start logging (also: start, on, ...)",
+      " grep [-i] [first-last|max] <perl regex>  - Search the logs",
+      "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
+      "   append |mail EMAIL-ADDRESS to email results instead of printing",
       "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
       "Logging Policy: All public output is logged if I am listening except",
       "for any lines starting [off].   All commands to me are logged.",
@@ -873,7 +973,7 @@ sub command_for_me ($$$$$) {
       "  restart     - I will leave and rejoin channel",
       "  debug       - Turn on debugging",
       "  nodebug     - Turn off debugging",
-      "These commands must be sent with the logger PASSWORD like this:",
+      "These commands work only with the admin PASSWORD like this:",
       "/msg $::Nick password PASSWORD command'",
     );
     my $do_sleep=0;
@@ -930,7 +1030,7 @@ sub command_for_me ($$$$$) {
     # Prefix with flags
     $search=$flags.$search;
 
-    my(@lines)=get_logs($self, $::Channel_URI);
+    my(@lines)=Channel_get_log_lines($::Channel);
 
     my(@results);
     eval "\@results=grep(/$search/, \@lines)";
@@ -947,13 +1047,14 @@ sub command_for_me ($$$$$) {
       my $pl=(@results != 1) ? 's' : '';
       my $count=scalar(@results);
       if(open(PIPE,"|/usr/lib/sendmail -t")) {
+	my $title=$::Channel->{Title};
 	print PIPE "From: $::IRC_Name\n";
 	print PIPE "To: $mail\n";
-	print PIPE "Subject: Results of search '$orig_search' on $::Channel_Title\n";
+	print PIPE "Subject: Results of search '$orig_search' on $title\n";
 	print PIPE "\n";
 	print PIPE "This email is the result of a search by\n";
         print PIPE "nick $from_nick ($userhost) on the\n";
-	print PIPE "$::Channel_Title\n";
+	print PIPE "$title\n";
 	print PIPE "This channel is logged at $::Log_URI\n";
 	print PIPE "\n";
 	print PIPE "$count result$pl follow:\n";
@@ -993,11 +1094,15 @@ sub command_for_me ($$$$$) {
   log_event($self, $event, time, $output) unless $is_private;
 }
 
+
+######################################################################
+# Utility subroutines
+
 # Escape any special characters that are significant to XML
 # Then hide any CVS/RCS tags from future invocations of CVS/RCS
 
 # this hideous concatenation only serves to hide this source line from CVS
-my $CVSkeywords = '\$'.'Date\$|\$'.'Date:.*\$|\$'.'Revision\$|\$'.'Revision:.*\$|\$'.'Author\$|\$'.'Author:.*\$|\$'.'Id\$|\$'.'Id:.*\$|\$'.'Log\$|\$'.'Log:.*\$|\$'.'Header\$|\$'.'Header:.*\$|\$'.'Locker\$|\$'.'Locker:.*\$|\$'.'Name\$|\$'.'Name:.*\$|\$'.'RCSfile\$|\$'.'RCSfile:.*\$|\$'.'Source\$|\$'.'Source:.*\$|\$'.'State\$|\$'.'State:.*\$';
+$::CVSkeywords = '\$'.'Date\$|\$'.'Date:.*\$|\$'.'Revision\$|\$'.'Revision:.*\$|\$'.'Author\$|\$'.'Author:.*\$|\$'.'Id\$|\$'.'Id:.*\$|\$'.'Log\$|\$'.'Log:.*\$|\$'.'Header\$|\$'.'Header:.*\$|\$'.'Locker\$|\$'.'Locker:.*\$|\$'.'Name\$|\$'.'Name:.*\$|\$'.'RCSfile\$|\$'.'RCSfile:.*\$|\$'.'Source\$|\$'.'Source:.*\$|\$'.'State\$|\$'.'State:.*\$';
 
 sub cvs_escape ($) {
   my ($text) = @_;
@@ -1006,7 +1111,7 @@ sub cvs_escape ($) {
 
   return $text if ($text !~ /\$/o); # nothing to hide
 
-  if ($text =~ /$CVSkeywords/o) {
+  if ($text =~ /$::CVSkeywords/o) {
       $text =~ s/\$/&#36;/g;
   }
   return $text;
@@ -1022,53 +1127,6 @@ sub xml_escape ($) {
   $string;
 }
 
-
-sub join_channel($$) {
-  my($uri, $title)=@_;
-
-  my $channel=$uri->channel;
-  $::Config{$channel}->{URI}=$uri;
-  $::Config{$channel}->{Title}=$title;
-  $::Config{$channel}->{Listening}=1;
-
-  # Set globals that should be per-channel
-  $::Channel_URI=$uri;
-  $::Channel_Title=$title;
-  $::Channel_Listening=1;
-
-  my $user_name=$uri->channel."-logger";
-
-  my $conn = $::IRC->newconn(Nick    => $::Nick,
-			     Server  => $uri->host,
-			     Port    => $uri->port,
-			     Ircname => $::IRC_Name,
-			     Username => $user_name,
-			     LocalAddr => $::Host);
-
-  die "$::program: Cannot create connection to $uri\n" 
-    unless $conn;
-
-  open_logs($conn);
-
-  # Install handlers
-  # On 'end of MOTD' event, join ilrt channel
-  $conn->add_global_handler(376, \&on_connect);
-  $conn->add_global_handler(353, \&on_names);
-  $conn->add_global_handler('disconnect', \&on_disconnect);
-
-  $conn->add_handler('msg', \&on_msg);
-  $conn->add_handler('public', \&on_public);
-  $conn->add_handler('part', \&on_part);
-  $conn->add_handler('join', \&on_join);
-  $conn->add_handler('kick', \&on_disconnect);
-  $conn->add_handler('caction', \&on_caction);
-  $conn->add_handler('quit', \&on_quit);
-  $conn->add_handler('nick', \&on_nick);
-  $conn->add_handler('nicknameinuse', \&on_nicknameinuse);
-  $conn->add_handler('topic', \&on_topic);
-  $conn->add_handler('notice', \&on_notice);
-
-}
 
 # URI recognition
 # The following URI recognition algorithm was translated from
