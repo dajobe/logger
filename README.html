@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+  <head>
+    <title>IRC Chat Logger</title>
+  </head>
+  <body bgcolor="#FFFFFF" text="#000000">
+
+    <h1>IRC Chat Logger</h1>
+
+    <p>An IRC logging 'bot in Perl that can record IRC sessions on
+    multiple channels in RDF, text and HTML.  That's pretty much all
+    it does although there is a little support for searching and
+    keeping note of action items for meetings.</p>
+
+
+    <h2>Installation</h2>
+
+    <p>It requires the Net::IRC perl module which you can get from 
+    <a href="http://www.cpan.org/">CPAN</a>.  Once that is installed
+    you can just run the bot with its two required arguments:</p>
+    <pre>
+  perl logger PASSWORD irc://SERVER/CHANNEL
+    </pre>
+    <p>where PASSWORD is some phrase for controlling the bot,
+    SERVER is the IRC server name and CHANNEL is the channel
+    (leave out the leading '#' if there is one).
+    </p>
+
+    <h2>Documentation</h2>
+
+    <p>The documention is built into the source.  Either ask the
+    bot for help on IRC with <tt><em>nickname</em>: help</tt> or
+    view the POD documentation in the source via the perldoc program:</p>
+
+    <pre>
+  perldoc logger
+    </pre>
+
+    <p>You can also read an HTML version of the documentation
+    in <a href="help.html">help.html</a>.
+    </p>
+
+
+    <h2>Sources</h2>
+
+    <p>Get the latest sources from CVS at the cvsweb area
+    <a href="http://cvs.ilrt.org/cvsweb/redland/logger/">http://cvs.ilrt.org/cvsweb/redland/logger/</a>
+    or from the CVS server at cvsroot :pserver:anonymous@cvs.ilrt.org:/cvsroot
+    in module redland/logger
+    </p>
+
+
+    <h2>Authors</h2>
+
+    <ul>
+      <li><a href="http://purl.org/net/dajobe/">Dave Beckett</a>, <br />
+       <a href="http://ilrt.org/">Institute for Learning and Research Technology</a>, 
+       <a href="http://www.bristol.ac.uk/">University of Bristol</a></li>
+
+       <li><a href="http://www.w3.org/People/all#swick">Ralph Swick</a>,
+        Massachusetts Institute of Technology /
+	World Wide Web Consoritum</li>
+   </ul>
+
+
+    <hr />
+
+  </body>
+</html>
