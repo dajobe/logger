@@ -14,13 +14,10 @@ use ExtUtils::MakeMaker;
 
 sub MY::postamble {
   return <<'EOT';
-LYNX=lynx
-LYNXARGS=-dump -nolist
-
 SUFFIXES = .html
 
 README: README.html
-	$(LYNX) $(LYNXARGS) $< > $@
+	TERM=vt100 lynx -dump -nolist $< > $@
 
 help.html: logger
 	pod2html --noindex --infile=$< > $@ && rm -f pod2htm*
