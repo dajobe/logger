@@ -380,7 +380,7 @@ sub on_join {
   my(@intro)=(
    "Welcome to the $Channel_Title",
    "I'm currently $logging to $Log_URI",
-   "Do /msg $Nick help for more"
+   "For extensive help do: /msg $Nick help"
   );
 
   my $do_sleep=0;
