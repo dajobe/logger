@@ -95,7 +95,7 @@ if(`uname -n` =~ /^([-\w.]+)$/) {
   $host='unknown';
 }
 
-my $pid_file="$Log_Root/logger.pid";
+my $pid_file="$Log_Root/logger-".$uri->channel.".pid";
 open(PID,">$pid_file");
 print PID "$$\n";
 close(PID);
