@@ -36,7 +36,7 @@ WriteMakefile(
     'ABSTRACT'  => "IRC Logger bot",
     'VERSION'   => $version,
 
-    'EXE_FILES' => ['logger' ],
+    'EXE_FILES' => ['logger', 'indexly', 'rebuild-indexes' ],
     'clean'     => { FILES => "README help.html logger.1" },
 );
 
