@@ -27,6 +27,9 @@ help.html: logger
 EOT
 }
 
+use POSIX qw(strftime);
+my $version=strftime("%Y-%m-%d", gmtime);
+
 
 
 WriteMakefile(
@@ -34,7 +37,7 @@ WriteMakefile(
     'NAME'	=> "logger",
     'AUTHOR'    => 'Dave Beckett <Dave.Beckett@bristol.ac.uk>  Ralph Swick <swick@w3.org>',
     'ABSTRACT'  => "IRC Logger bot",
-    'VERSION'   => "1.0",
+    'VERSION'   => $version,
 
     'EXE_FILES' => ['logger' ],
     'clean'     => { FILES => "README help.html logger.1" },
