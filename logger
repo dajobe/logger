@@ -156,6 +156,10 @@ sub channel ($) {
 
 package main;
 
+# this hideous concatenation only serves to hide this source line from CVS
+# The objective is to create a regex pattern that matches all CVS/RCS keywords
+$::CVSkeywords = '\$'.'Date\$|\$'.'Date:.*\$|\$'.'Revision\$|\$'.'Revision:.*\$|\$'.'Author\$|\$'.'Author:.*\$|\$'.'Id\$|\$'.'Id:.*\$|\$'.'Log\$|\$'.'Log:.*\$|\$'.'Header\$|\$'.'Header:.*\$|\$'.'Locker\$|\$'.'Locker:.*\$|\$'.'Name\$|\$'.'Name:.*\$|\$'.'RCSfile\$|\$'.'RCSfile:.*\$|\$'.'Source\$|\$'.'Source:.*\$|\$'.'State\$|\$'.'State:.*\$';
+
 ######################################################################
 
 
@@ -299,7 +303,7 @@ sub Channel_join($) {
 
   $self->{Listening}=1;
 
-  my $user_name=$channel_name."-logger";
+  my $user_name=substr($channel_name,0,8)."-logger";
 
   my $conn = $::IRC->newconn(Nick    => $::Nick,
 			     Server  => $uri->host,
@@ -1000,10 +1004,17 @@ sub command_for_me ($$$$$) {
       "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
       "   append |mail EMAIL-ADDRESS to email results instead of printing",
       "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
-      "Logging Policy: All public output is logged if I am listening except",
-      "for any lines starting [off].   All commands to me are logged.",
+      "Logging Policy: All public output is logged if I am listening except for"
+    );
+    if (! $::LogActionMsgs) {
+      @help=(@help,
+         "\"action\" messages (messages sent with the '/me' command) and"
+     );
+    }
+    @help=(@help,
+      "any lines starting [off].   All commands to me are logged.",
       "My public output is logged but these lines are not searchable.",
-      "The public logs are at $::Log_URI",
+      "The logs are at $::Log_URI",
       "Do $::Nick, adminhelp for help on administrative commands",
     );
     my $do_sleep=0;
@@ -1153,9 +1164,6 @@ sub command_for_me ($$$$$) {
 
 # Escape any special characters that are significant to XML
 # Then hide any CVS/RCS tags from future invocations of CVS/RCS
-
-# this hideous concatenation only serves to hide this source line from CVS
-$::CVSkeywords = '\$'.'Date\$|\$'.'Date:.*\$|\$'.'Revision\$|\$'.'Revision:.*\$|\$'.'Author\$|\$'.'Author:.*\$|\$'.'Id\$|\$'.'Id:.*\$|\$'.'Log\$|\$'.'Log:.*\$|\$'.'Header\$|\$'.'Header:.*\$|\$'.'Locker\$|\$'.'Locker:.*\$|\$'.'Name\$|\$'.'Name:.*\$|\$'.'RCSfile\$|\$'.'RCSfile:.*\$|\$'.'Source\$|\$'.'Source:.*\$|\$'.'State\$|\$'.'State:.*\$';
 
 sub cvs_escape ($) {
   my ($text) = @_;
