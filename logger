@@ -1039,7 +1039,7 @@ sub command_for_me ($$$$$) {
 
     my $output;
     my $chump=undef;
-    if($item =~ /^([A-Za-z]+)$/) {
+    if($item =~ /^([A-Za-z]+):?$/) {
       $chump=uc $1;
       $chump=undef if $chump eq 'BLURB';
     }
