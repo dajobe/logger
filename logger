@@ -21,6 +21,9 @@ my $Max_Results=5;
 my $Max_Max_Results=20;
 my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
+# Print welcome message?
+my $do_welcome=0;
+
 #my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
 #my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
 
@@ -405,6 +408,8 @@ sub on_join {
   my $user_nick=$event->nick;
   
   log_event(time, $event, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
+
+  return if !$do_welcome;
 
   my $logging=($::listening) ? "logging" : "not logging";
 
