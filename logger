@@ -38,6 +38,7 @@ use File::Basename;
 use Sys::Hostname;
 use Getopt::Long;
 use IO::Handle;
+use Encode;
 
 # From CPAN
 use URI;
@@ -607,6 +608,8 @@ sub log_event ($$$;$) {
 
   $channel->{hour} = $hour;
 
+
+  $msg=ensure_utf8($msg);
 
   if (grep($_ eq 'txt', @{$channel->{LogTypes}})) {
     my $txt_msg=$nick ? qq{<$nick> $msg} : $msg;
@@ -1214,6 +1217,21 @@ sub command_for_me ($$$$$) {
 
 ######################################################################
 # Utility subroutines
+
+sub ensure_utf8 ($) {
+  my $text = shift;
+
+  # If it cannot be decoded as UTF-8...
+  my $t=$text;
+  eval { decode("utf8", $t, Encode::FB_CROAK); };
+  if($@) {
+    # Assume it is latin-1 (there is no real IRC encoding), encode as UTF-8
+    $text=encode("utf8", decode("iso-8859-1", $text), Encode::FB_QUIET);
+  }
+
+  $text;
+}
+
 
 # Escape any special characters that are significant to XML
 # Then hide any CVS/RCS tags from future invocations of CVS/RCS
