@@ -214,7 +214,7 @@ sub on_connect {
   
   $self->join($Channel);
   $::listening=1;
-  $conn->me($Channel, ' is listening');
+  $conn->me($Channel, 'is logging');
 }
 
 
@@ -341,35 +341,35 @@ sub command_for_me ($$$$) {
   
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
     $::departing=1;
-    $conn->me($Channel, ' is departing');
+    $conn->me($Channel, 'is departing');
     $conn->quit;
     exit 0;
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop)/i) {
     if($::listening) {
-      $conn->me($Channel, ' is not listening');
+      $conn->me($Channel, 'is not logging');
       $::listening=0;
     } else {
-      $conn->me($Channel, ' is already not listening');
+      $conn->me($Channel, 'is already not logging');
     }
     return;
   }
   
-  if($command=~ /^(?:hello|listen|record|start|begin)/i) {
+  if($command=~ /^(?:hello|log|listen|record|start|begin)/i) {
     if(!$::listening) {
-      $conn->me($Channel, ' is listening');
+      $conn->me($Channel, 'is logging');
       $::listening=1;
     } else {
-      $conn->me($Channel, ' is already listening');
+      $conn->me($Channel, 'is already logging');
     }
     return;
   }
 
   if(!$::listening) {
-    $output="I'm not listening. ";
+    $output="I'm not logging. ";
   } else {
-    $output="I'm listening. ";
+    $output="I'm logging. ";
   }
 
   # Allow question?
