@@ -134,11 +134,6 @@ $::Admin_LOG=undef;
 $::PID_File=undef;
 
 
-# Keep -w happy
-sub mention {
-  my $dummy=@::LogTypes;
-}
-
 ######################################################################
 package URI::irc;
 
@@ -692,6 +687,8 @@ sub on_connect {
       $channel_name ='#' . $channel->{URI}->channel; # else assume a public channel
   }
 
+  log_admin_event($self, $event, time, "Connected to server");
+
   $self->join($channel_name);
   $channel->{Listening}=1;
   $self->me($channel_name, 'is logging');
@@ -729,7 +726,10 @@ sub on_names {
 sub on_disconnect {
   my ($self, $event) = @_;
   
-  log_event($self, $event, time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+  my $t=time;
+  my $m="Disconnected from ". $event->from(). " (". ($event->args())[0]. ")";
+  log_admin_event($self, $event, $t, $m);
+  log_event($self, $event, $t, $m);
 
   return if $::Departing;
 
@@ -834,6 +834,7 @@ sub on_nick {
   log_event($self, $event, time, "$nick is now known as $arg");
 }
 
+
 # What to do when someone does /topic MSG
 sub on_topic {
   my ($self, $event) = @_;
@@ -863,7 +864,12 @@ sub on_join {
 
   my $format=$::LogUserHosts ? "%s (%s) has joined $channel_name" :
                                "%s has joined $channel_name";
-  log_event($self, $event, time, sprintf($format, $user_nick, $event->userhost));
+  my $t=time;
+  my $m=sprintf($format, $user_nick, $event->userhost);
+  log_event($self, $event, $t, $m);
+  if($user_nick eq $::Nick) {
+    log_admin_event($self, $event, $t, $m);
+  }
 
   return if !$::Do_Welcome;
 
