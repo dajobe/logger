@@ -186,12 +186,19 @@ EOT
   my $ID="$time"; $ID =~ s/:/-/g;
 
   # add a unique suffix if necessary
-  if($ID eq $Last_ID) {
-    if($ID !~ /-/) {
-      $ID.="-1";
-    } else {
+  if(length($Last_ID) != length($ID)) {
+    # If last ID was in same second, need to start from next
+    # ID HH-MM-SS-X and increment X
+    # otherwise, new ID is OK
+    if ($Last_ID =~ /^$ID/) {
+      $ID=$Last_ID;
       $ID++; # magical increment
     }
+  } elsif($ID eq $Last_ID) {
+    # Else if was same as last ID, must be first duplicate of this
+    # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
+    # it unique HH-MM-SS-1
+    $ID.="-1";
   }
   $Last_ID=$ID;
 
