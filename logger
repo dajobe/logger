@@ -68,9 +68,9 @@ sub xml_escape ($) {
 
 $::program=basename $0;
 
-die "Usage: $program channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
-  unless @ARGV==4;
-my($uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
+die "Usage: $program password channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
+  unless @ARGV==5;
+my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
 
 my $uri;
@@ -86,7 +86,7 @@ my $Log_Root=$log_root;
 my $Log_URI=$log_uri_string;
 my $Channel_Title=$channel_title;
 my $Topic='';
-
+my $User_Name=$uri->channel."-logger";
 
 my $host;
 if(`uname -n` =~ /^([-\w.]+)$/) {
@@ -106,6 +106,7 @@ my $conn = $irc->newconn(Nick    => $Nick,
 			 Server  => $Server,
 			 Port    => $Port,
 			 Ircname => $IRC_Name,
+			 Username => $User_Name,
 			 LocalAddr => $host);
 die "$program: Cannot create connection to $uri_string\n" unless $conn;
 
@@ -117,8 +118,8 @@ $::connecting=1;
 ######################################################################
 # Logging
 
-sub log_event ($$;$) {
-  my($t, $event, $msg)=@_;
+sub log_event ($$$;$) {
+  my($self, $t, $event, $msg)=@_;
   my $nick=$event->nick;
 
   return if !$::listening;
@@ -280,7 +281,7 @@ sub on_names {
   # splice() only works on real arrays. Sigh.
   ($channel, @list) = splice @list, 2;
   
-  log_event(time, $event, "Users on $channel: @list");
+  log_event($self, time, $event, "Users on $channel: @list");
 
   $::connecting=0;
 }
@@ -290,11 +291,11 @@ sub on_names {
 sub on_disconnect {
   my ($self, $event) = @_;
   
-  log_event(time, $event, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+  log_event($self, time, $event, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
 
   return if $::departing;
 
-  log_event(time, $event, "Attempting to reconnect");
+  log_event($self, time, $event, "Attempting to reconnect");
   exit 0;
 }
 
@@ -329,7 +330,7 @@ sub on_public {
     command_for_me($self, $event, $1, 0);
   }
 
-  log_event(time, $event, $arg);
+  log_event($self, time, $event, $arg);
 }
 
 
@@ -342,7 +343,7 @@ sub on_caction {
   # Private stuff
   return if $arg =~ /^\[off\]/i;
 
-  log_event(time, $event, "* $nick $arg");
+  log_event($self, time, $event, "* $nick $arg");
 }
 
 
@@ -352,7 +353,7 @@ sub on_part {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
 
-  log_event(time, $event, "$nick has left channel");
+  log_event($self, time, $event, "$nick has left channel");
 }
 
 
@@ -367,7 +368,7 @@ sub on_notice {
 
   return if $::connecting;
 
-  log_event(time, $event, $arg);
+  log_event($self, time, $event, $arg);
 }
 
 
@@ -378,7 +379,7 @@ sub on_quit {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
-  log_event(time, $event, "$nick has quit ($arg)");
+  log_event($self, time, $event, "$nick has quit ($arg)");
 }
 
 
@@ -388,7 +389,7 @@ sub on_nick {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
-  log_event(time, $event, "$nick is now known as $arg");
+  log_event($self, time, $event, "$nick is now known as $arg");
 }
 
 # What to do when someone does /topic MSG
@@ -399,10 +400,10 @@ sub on_topic {
   my $arg;
   if(@args == 3) {
     $arg=$args[2];
-    log_event(time, $event, "topic is: $arg");
+    log_event($self, time, $event, "topic is: $arg");
   } else {
     $arg=$args[0];
-    log_event(time, $event, "$nick has changed the topic to: $arg");
+    log_event($self, time, $event, "$nick has changed the topic to: $arg");
   }
   $Topic=$arg;
 }
@@ -414,7 +415,7 @@ sub on_join {
   my ($channel) = ($event->to)[0];
   my $user_nick=$event->nick;
   
-  log_event(time, $event, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
+  log_event($self, time, $event, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
 
   return if !$do_welcome;
 
@@ -445,21 +446,31 @@ sub command_for_me ($$$$) {
 
   my $dest_nick=($is_private ? $from_nick : $Channel);
 
+  my $valid_password=0;
+  if($command =~ s/^password (\S+)\s*//) {
+    if($password eq $1) {
+      $valid_password=1;
+    }
+  }
 
-  if($is_private && $command eq 'restart') {
+  if($is_private && $valid_password && $command eq 'restart') {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
     sleep(1);
-    exit 0;
+    $::connecting=1;
+    $self->connect();
+    return;
   }
   
-  if($is_private && $command eq 'debuggery') {
+  if($is_private && $valid_password && $command eq 'debug') {
+    $conn->privmsg($dest_nick, "Debugging is on");
     $conn->debug(1);
     return;
   }
   
-  if($is_private && $command eq 'undebuggery') {
+  if($is_private && $valid_password && $command eq 'nodebug') {
+    $conn->privmsg($dest_nick, "Debugging is off");
     $conn->debug(0);
     return;
   }
@@ -468,7 +479,7 @@ sub command_for_me ($$$$) {
     $::departing=1;
     $conn->me($Channel, 'is departing');
     # Log who told me to quit
-    log_event(time, $event, "Logger told to quit");
+    log_event($self, time, $event, "Logger told to quit");
     $conn->quit;
     exit 0;
   }
@@ -477,7 +488,7 @@ sub command_for_me ($$$$) {
     if($::listening) {
       $conn->me($Channel, 'is not logging');
       # Log who turned me off BEFORE turning off logging
-      log_event(time, $event, "Logging turned off");
+      log_event($self, time, $event, "Logging turned off");
       $::listening=0;
     } else {
       $conn->me($Channel, 'is already not logging');
@@ -490,7 +501,7 @@ sub command_for_me ($$$$) {
       $conn->me($Channel, 'is logging');
       $::listening=1;
       # Log who turned me on
-      log_event(time, $event, "Logging turned on");
+      log_event($self, time, $event, "Logging turned on");
     } else {
       $conn->me($Channel, 'is already logging');
     }
@@ -603,7 +614,7 @@ sub command_for_me ($$$$) {
 	print PIPE join("\n", reverse @results);
 	close(PIPE);
 	$output.=qq{ Mailed $count result$pl to $mail};
-	log_event(time, $event, "Search results from '$orig_search' mailed to $mail");
+	log_event($self, time, $event, "Search results from '$orig_search' mailed to $mail");
       } else {
 	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
       }
@@ -615,25 +626,25 @@ sub command_for_me ($$$$) {
 	$output.=" (showing $first...$last)";
       }
       $conn->privmsg($dest_nick, $output);
-      log_event(time, $event, $output) unless $is_private;
+      log_event($self, time, $event, $output) unless $is_private;
 
       my $count=0;
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
 	$conn->privmsg($dest_nick, $output);
-	log_event(time, $event, $output) unless $is_private;
+	log_event($self, time, $event, $output) unless $is_private;
 	$count++;
 	last if $count > $Max_Max_Results;
       }
       return;
     }
   } else {
-    $output.="I don't understand that, $from_nick.  Try /msg $Nick help";
+    $output.="I don't understand '$command', $from_nick.  Try /msg $Nick help";
   }
 
   $conn->privmsg($dest_nick, $output);
-  log_event(time, $event, $output) unless $is_private;
+  log_event($self, time, $event, $output) unless $is_private;
 }
 
 
