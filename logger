@@ -199,7 +199,7 @@ sub on_join {
   if(!$::listening) {
     $output.="I'm not listening.";
   } else {
-    $output="I'm listening.";
+    $output.="I'm listening.";
   }
 
   $conn->notice($event->nick, $output);
@@ -252,6 +252,10 @@ sub command_for_me ($$$$) {
     $output="I'm listening. ";
   }
 
+  # Allow question?
+  if ($command =~ /^(.+)\?$/) {
+    $command="grep $1";
+  }
 
   if($command=~ /^help/i) {
     $output.="I understand 'quit', 'silence', 'listen', 'grep (-i) REGEX'";
@@ -271,14 +275,27 @@ sub command_for_me ($$$$) {
     my $orig_search=$search;
 
     # Only allow a few regexes
-    $search =~ s/[^a-z0-9A-Z\.+* ]/./g;
+
+    # Remove (?...) blocks since they can do evals
+    $search =~ s/\(\?[^)]+\)//g;
+    # Remove variable references
+    $search =~ s/\$//g;
+    # Quote '/'s
+    $search =~ s%/%\\/%g;
+
 
     # Prefix with flags
     $search=$flags.$search;
 
-    my(@bits)=grep(/$search/, get_logs());
-    if (!@bits) {
-      $output.=" Sorry, nothing found for '$orig_search' (internally: "$search")";
+    my(@bits);
+    eval "\@bits=grep(/$search/, get_logs())";
+    if($!) {
+      @bits=();
+      my $msg=$!; $msg=~ s/^ at .+$//;
+      $output.=qq{ Sorry, search failed with error - $msg};
+    } elsif (!@bits) {
+      $output.=qq{ Sorry, nothing found for '$orig_search'};
+      $output.=qq{ (internally: "$search")} if $orig_search ne $search;
     } else {
       my $pl=(@bits != 1) ? 's' : '';
       $output.=" I found ".scalar(@bits)." answer$pl:\n";
