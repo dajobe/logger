@@ -333,6 +333,20 @@ sub on_part {
 }
 
 
+# What to do when we receive channel notice (mostly other bots)
+sub on_notice {
+  my ($self, $event) = @_;
+  my $nick = $event->nick;
+  my $arg = join(' ', $event->args);
+
+  # Private stuff
+  return if $arg =~ /^\[off\]/i;
+
+  log_event(time, $event, $arg);
+}
+
+
+
 # What to do when someone leaves a channel logger is on.
 sub on_quit {
   my ($self, $event) = @_;
@@ -579,6 +593,7 @@ $conn->add_handler('quit', \&on_quit);
 $conn->add_handler('nick', \&on_nick);
 $conn->add_handler('nicknameinuse', \&on_nicknameinuse);
 $conn->add_handler('topic', \&on_topic);
+$conn->add_handler('notice', \&on_notice);
 
 
 $irc->start;
