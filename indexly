@@ -44,6 +44,8 @@ my $home='/wherever/logger';
 # this directory
 my $logs="/wherever/logs";
 
+my $live="$home/logs";
+
 # Where the XSLT sheets live
 my $xslt="/wherever/xslt";
 
@@ -104,7 +106,7 @@ if(@ARGV) {
   die "$0: No good channels in @ARGV\n" unless @channels;
 } else {
   for my $channel (@potential_channels) {
-    my $live_file="$home/$channel-live";
+    my $live_file="$live/$channel-live";
     push(@channels, $channel) if -r $live_file || $always_live{$channel};
   }
 }
