@@ -68,8 +68,6 @@ sub xml_escape ($) {
 
 $::program=basename $0;
 
-@::ARGS=($0,@ARGV);
-
 die "Usage: $program channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
   unless @ARGV==4;
 my($uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
@@ -96,6 +94,11 @@ if(`uname -n` =~ /^([-\w.]+)$/) {
 } else {
   $host='unknown';
 }
+
+my $pid_file="$Log_Root/logger.pid";
+open(PID,">$pid_file");
+print PID "$$\n";
+close(PID);
 
 
 my $irc = new Net::IRC;
@@ -286,9 +289,7 @@ sub on_disconnect {
   return if $::departing;
 
   log_event(time, $event, "Attempting to reconnect");
-  sleep(1);
-  $::connecting=1;
-  $self->connect();
+  exit 0;
 }
 
 
@@ -444,7 +445,7 @@ sub command_for_me ($$$$) {
     $conn->me($Channel, ' is departing');
     $conn->quit;
     sleep(1);
-    exec @::ARGS;
+    exit 0;
   }
   
   if($is_private && $command eq 'debuggery') {
