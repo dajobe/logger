@@ -62,8 +62,8 @@ $::LogName=undef;
 $::LogActionMsgs=1;
 $::LogUserHosts=0;
 
-@::LogTypes=qw(rdf html text);
-@::DefaultLogTypes=qw(rdf text);
+@::LogTypes=qw(rdf html txt);
+@::DefaultLogTypes=qw(rdf txt);
 
 # ugly system dependencies
 # MSWin does not permit ":" in file path components
@@ -176,21 +176,23 @@ Usage: $::program [option...] password channel-URI channel-title log-dir log-URI
   where option is one or more of:
    -noaction	    don't log /me messages
    -html	    write an XHTML log
+   -notext	    don't write a text log
    -log <logfile>   (\".txt\", \".html\", and \".rdf\" will be appended)
    -nick <nick>     set the nick
    -userhosts       log user\@host in /join messages
   and channel-URI is like irc://host[:port]/channel
 EOT
 
-  my $log_html=0;
+  my(%do_log_types)=map {$_ => 1} @::DefaultLogTypes;
   die $usage unless GetOptions ('action!' => \$::LogActionMsgs,
-		       'html!'	 => \$log_html,
+		       'html!'	 => \$do_log_types{'html'},
+		       'text!'	 => \$do_log_types{'txt'},
 		       'log=s'	 => \$::LogName,
 		       'nick=s'	 => \$::Nick,
 		       'userhost!' => \$::LogUserHosts,
 		      ) && @ARGV==5;
 
-  push(@::DefaultLogTypes, 'html') if $log_html;
+  @::DefaultLogTypes=grep($do_log_types{$_}, @::LogTypes);
 
   my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
@@ -413,17 +415,17 @@ sub Channel_open_logs ($) {
   } 
 
 
-  if (grep($_ eq 'text', @{$self->{LogTypes}})) {
-    my $text_log_fh=$self->{FH}->{text}=new IO::File;
-    my $text_log_file=$log_files{text};
+  if (grep($_ eq 'txt', @{$self->{LogTypes}})) {
+    my $txt_log_fh=$self->{FH}->{txt}=new IO::File;
+    my $txt_log_file=$log_files{txt};
     
-    if (!$self->{FH}->{text}->open(">>$text_log_file")) {
+    if (!$self->{FH}->{txt}->open(">>$txt_log_file")) {
       $conn->privmsg("#$channel_name", "failed to open text log file, quitting - $!");
       unlink $::PID_File;
       exit(0);
     }
 
-    $text_log_fh->autoflush(1);
+    $txt_log_fh->autoflush(1);
   }
 
 
@@ -558,10 +560,10 @@ sub log_event ($$$;$) {
   $::Channel->{hour} = $tm[2];
 
 
-  if (grep($_ eq 'text', @{$::Channel->{LogTypes}})) {
-    my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
-    my $text_log_fh=$::Channel->{FH}->{text};
-    print $text_log_fh "$time $text_msg\n";
+  if (grep($_ eq 'txt', @{$::Channel->{LogTypes}})) {
+    my $txt_msg=$nick ? qq{<$nick> $msg} : $msg;
+    my $txt_log_fh=$::Channel->{FH}->{txt};
+    print $txt_log_fh "$time $txt_msg\n";
   }
 
 
@@ -636,8 +638,8 @@ sub log_admin_event ($$$;$) {
   my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
   my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
 
-  my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
-  print $::Admin_LOG "${date}Z${time} $text_msg\n";
+  my $txt_msg=$nick ? qq{<$nick> $msg} : $msg;
+  print $::Admin_LOG "${date}Z${time} $txt_msg\n";
 }
 
 
