@@ -9,6 +9,8 @@
 # http://www.ilrt.bristol.ac.uk/people/cmdjb/
 #
 
+use strict;
+
 # Come with Perl
 use File::Path;
 use File::Basename;
@@ -20,22 +22,64 @@ use URI;
 use Net::IRC;
 
 
-my $Nick='logger';
-my $IRC_Name='Chat Logger';
-my $Max_Results=5;
-my $Max_Max_Results=20;
-my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
-
-# Print welcome message?
-my $do_welcome=0;
-
-#my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
-#my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
-
-$Last_ID='';
-
 %ENV=();
 $ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
+
+
+# Global constants
+$::program=basename $0;
+
+$::Host=(hostname || 'unknown');
+
+$::Nick='logger'; # OK this can be changed if clashes
+$::IRC_Name='Chat Logger';
+$::Max_Results=5;
+$::Max_Max_Results=20;
+
+
+# Global variables
+
+# IRC object
+$::IRC=undef;
+
+# root dir of logs
+$::Log_Root='';
+
+# place on the web this corresponds to
+$::Log_URI='';
+
+# System password
+$::Password='';
+
+# Print welcome message?
+$::Do_Welcome=0;
+
+
+# Global Variables that should be per-Channel
+# title
+%::Config=();
+
+$::Channel_Title='';
+
+# irc:: URI
+$::Channel_URI='';
+
+# topic of channel
+$::Channel_Topic='';
+
+# Last ID seen
+$::Channel_Last_ID='';
+
+# True if logging
+$::Channel_Listening=0;
+
+# True if leaving (so don't reconnect)
+$::Channel_Departing=0;
+
+# True if connecting (don't log server notices)
+$::Channel_Connecting=0;
+
+
 
 ######################################################################
 package URI::irc;
@@ -45,7 +89,7 @@ package URI::irc;
 
 require URI::_server;
 
-@ISA=qw(URI::_server);
+@URI::irc::ISA=qw(URI::_server);
 
 sub default_port { 6667 }
 
@@ -59,85 +103,45 @@ sub channel ($) {
 
 package main;
 
-sub xml_escape ($) {
-  my $string=shift;
-  $string =~ s/\&/\&amp;/g;
-  $string =~ s/</\&lt;/g;
-  $string =~ s/>/\&gt;/g;
-  $string =~ s/[\x00-\x1F]//g;  # remove ASCII 0-31
-  $string =~ s/([\x80-\xFF])/"\&#".ord($1).";"/ge; # escape ASCII 128-255
-  $string;
-}
-
 ######################################################################
 
-$::program=basename $0;
 
-die "Usage: $program password channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
-  unless @ARGV==5;
-my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
+sub main {
 
+  die "Usage: $::program password channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
+    unless @ARGV==5;
+  my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
-my $uri;
-eval '$uri=new URI $uri_string';
-die "$program: '$uri_string' does not look like an IRC URI\n" if ($@ || !$uri);
-
-die "$program: log dir $log_root does not exist\n" unless -d $log_root;
-
-my $Channel='#'.$uri->channel;
-my $Server=$uri->host;
-my $Port=$uri->port;
-my $Log_Root=$log_root;
-my $Log_URI=$log_uri_string;
-my $Channel_Title=$channel_title;
-my $Topic='';
-my $User_Name=$uri->channel."-logger";
-my $Host=hostname || 'unknown';
+  my $uri;
+  eval '$uri=new URI $uri_string';
+  die "$::program: '$::Channel_URI' does not look like an IRC URI\n" 
+    if ($@ || !$uri);
 
 
-my $pid_file="$Log_Root/logger-".$uri->channel.".pid";
-open(PID,">$pid_file");
-print PID "$$\n";
-close(PID);
+  die "$::program: log dir $log_root does not exist\n" unless -d $log_root;
 
+  # Set globals
+  $::Password=$password;
+  $::Log_Root=$log_root;
+  $::Log_URI=$log_uri_string;
+  $::Do_Welcome=0;
 
-my $irc = new Net::IRC;
-my $conn = $irc->newconn(Nick    => $Nick,
-			 Server  => $Server,
-			 Port    => $Port,
-			 Ircname => $IRC_Name,
-			 Username => $User_Name,
-			 LocalAddr => $Host);
-die "$program: Cannot create connection to $uri_string\n" unless $conn;
+  # FIXME - pid_file should not have channel in it, when logger
+  # handles multiple channels
+  my $pid_file=$::Log_Root.'/logger-'.$uri->channel.'.pid';
+  open(PID,">$pid_file");
+  print PID "$$\n";
+  close(PID);
 
-$::listening=1;
-$::departing=0;
-$::connecting=1;
+  $::IRC = new Net::IRC;
 
+  join_channel($uri, $channel_title);
 
+  # Never returns
+  $::IRC->start;
+}
 
-
-# Install handlers
-# On 'end of MOTD' event, join ilrt channel
-$conn->add_global_handler(376, \&on_connect);
-$conn->add_global_handler(353, \&on_names);
-$conn->add_global_handler('disconnect', \&on_disconnect);
-
-$conn->add_handler('msg', \&on_msg);
-$conn->add_handler('public', \&on_public);
-$conn->add_handler('part', \&on_part);
-$conn->add_handler('join', \&on_join);
-$conn->add_handler('kick', \&on_disconnect);
-$conn->add_handler('caction', \&on_caction);
-$conn->add_handler('quit', \&on_quit);
-$conn->add_handler('nick', \&on_nick);
-$conn->add_handler('nicknameinuse', \&on_nicknameinuse);
-$conn->add_handler('topic', \&on_topic);
-$conn->add_handler('notice', \&on_notice);
-
-
-# Never returns
-$irc->start;
+&main;
 
 exit 0;
 
@@ -146,19 +150,20 @@ exit 0;
 # Logging
 
 sub log_event ($$$;$) {
-  my($self, $t, $event, $msg)=@_;
+  my($self, $event, $t, $msg)=@_;
   my $nick=$event->nick;
 
-  return if !$::listening;
+  return if !$::Channel_Listening;
 
-  my $c=$Channel;
-  $c=~ s/\W//g;
-  my $log_dir="$Log_Root/$Server:$Port/$c/";
+  my $uri=$::Channel_URI;
+
+  my $channel=$uri->channel;
+  my $log_dir=log_dir_for_channel($uri);
 
   mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
   # Failed!
   if (! -d $log_dir) {
-    $self->privmsg($Channel, "failed to create chat log dir, quitting");
+    $self->privmsg("#$channel", "failed to create chat log dir, quitting");
     exit(0);
   }
 
@@ -176,7 +181,7 @@ sub log_event ($$$;$) {
 
   # Failed!
   if (!open(LOG, ">>$log_file")) {
-    $self->privmsg($Channel, "failed to append to log file, quitting - $!");
+    $self->privmsg("#$channel", "failed to append to log file, quitting - $!");
     exit(0);
   }
   my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
@@ -186,7 +191,7 @@ sub log_event ($$$;$) {
 
   if(!-r $rdf_log_file) {
     if (!open(RLOG, ">$rdf_log_file")) {
-      $self->privmsg($Channel, "failed to append to log file, quitting - $!");
+      $self->privmsg("#$channel", "failed to append to log file, quitting - $!");
       exit(0);
     }
 
@@ -196,13 +201,13 @@ sub log_event ($$$;$) {
          xmlns:dc="http://purl.org/dc/elements/1.1/"
          xmlns:wn="http://xmlns.com/wordnet/1.6/"
          xmlns:foaf="http://xmlns.com/foaf/0.1/">
-<foaf:ChatChannel rdf:about="$uri_string">
+<foaf:ChatChannel rdf:about="$::Channel_URI">
   <foaf:chatEventList>
     <rdf:Seq>
 EOT
   } else {
     if (!open(RLOG, "+<$rdf_log_file")) {
-      $self->privmsg($Channel, "failed to append to log file, quitting - $!");
+      $self->privmsg("#$channel", "failed to append to log file, quitting - $!");
       exit(0);
     }
 
@@ -214,20 +219,20 @@ EOT
   my $ID="T$time"; $ID =~ s/:/-/g;
 
   # add a unique suffix if necessary
-  if(length($Last_ID) != length($ID)) {
+  if(length($::Channel_Last_ID) != length($ID)) {
     # If last ID was in same second, need to start from next
     # ID HH-MM-SS-X and increment X
     # otherwise, new ID is OK
-    if ($Last_ID =~ /^$ID-(\d+)$/) {
+    if ($::Channel_Last_ID =~ /^$ID-(\d+)$/) {
       $ID.="-".$1+1;
     }
-  } elsif($ID eq $Last_ID) {
+  } elsif($ID eq $::Channel_Last_ID) {
     # Else if was same as last ID, must be first duplicate of this
     # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
     # it unique HH-MM-SS-1
     $ID.="-1";
   }
-  $Last_ID=$ID;
+  $::Channel_Last_ID=$ID;
 
 
   print RLOG <<"EOT";
@@ -243,10 +248,19 @@ EOT
 }
 
 
-sub get_logs () {
-  my $c=$Channel;
-  $c=~ s/\W//g;
-  my $log_dir="$Log_Root/$Server:$Port/$c/";
+sub log_dir_for_channel ($) {
+  my $uri=shift;
+
+  my $channel=$uri->channel; $channel=~ s/\W//g;
+
+  return $::Log_Root.'/'.$uri->host.':'.$uri->port.'/'.$channel.'/';
+}
+
+
+sub get_logs ($$) {
+  my($self,$uri)=@_;
+
+  my $log_dir=log_dir_for_channel($uri);
 
   return () if !opendir(DIR, $log_dir);
 
@@ -263,7 +277,7 @@ sub get_logs () {
     while(<LOG>) {
       chomp;
       # Ignore logger's own output
-      next if m%^\d\d:\d\d:\d\d <$Nick>%;
+      next if m%^\d\d:\d\d:\d\d <$::Nick>%;
       push(@lines, "$date $_") if length $_;
     };
     close(LOG);
@@ -282,21 +296,23 @@ sub get_logs () {
 sub on_connect {
   my ($self, $event) = @_;
   
-  $self->join($Channel);
-  $::listening=1;
-  $self->me($Channel, 'is logging');
+  my $channel='#' . $::Channel_URI->channel;
+
+  $self->join($channel);
+  $::Channel_Listening=1;
+  $self->me($channel, 'is logging');
 }
 
 # What to do when logger's nick is already used
 sub on_nicknameinuse {
   my ($self, $event) = @_;
   
-  if ($Nick !~ /_/) {
-    $Nick.="_1";
+  if ($::Nick !~ /_/) {
+    $::Nick.="_1";
   } else {
-    $Nick++; # magical increment
+    $::Nick++; # magical increment
   }
-  $self->nick($Nick);
+  $self->nick($::Nick);
 }
 
 
@@ -308,9 +324,9 @@ sub on_names {
   # splice() only works on real arrays. Sigh.
   ($channel, @list) = splice @list, 2;
   
-  log_event($self, time, $event, "Users on $channel: @list");
+  log_event($self, $event, time, "Users on $channel: @list");
 
-  $::connecting=0;
+  $::Channel_Connecting=0;
 }
 
 
@@ -318,11 +334,11 @@ sub on_names {
 sub on_disconnect {
   my ($self, $event) = @_;
   
-  log_event($self, time, $event, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+  log_event($self, $event, time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
 
-  return if $::departing;
+  return if $::Channel_Departing;
 
-  log_event($self, time, $event, "Attempting to reconnect");
+  log_event($self, $event, time, "Attempting to reconnect");
   exit 0;
 }
 
@@ -335,11 +351,12 @@ sub on_disconnect {
 sub on_msg {
   my($self,$event)=@_;
   my $nick = $event->nick;
-  
-  return if $nick eq $Nick;
+  my $channel = $event->to;
+
+  return if $nick eq $::Nick;
 
   my $arg = join(' ', $event->args);
-  command_for_me($self, $event, $arg, 1);
+  command_for_me($self, $event, $channel, $arg, 1);
 }
 
 
@@ -354,10 +371,10 @@ sub on_public {
   return if $arg =~ /^\[off\]/i;
 
   if ($arg =~ /^$mynick,\s+(.*)$/) {
-    command_for_me($self, $event, $1, 0);
+    command_for_me($self, $event, $to[0], $1, 0);
   }
 
-  log_event($self, time, $event, $arg);
+  log_event($self, $event, time, $arg);
 }
 
 
@@ -370,7 +387,7 @@ sub on_caction {
   # Private stuff
   return if $arg =~ /^\[off\]/i;
 
-  log_event($self, time, $event, "* $nick $arg");
+  log_event($self, $event, time, "* $nick $arg");
 }
 
 
@@ -380,7 +397,7 @@ sub on_part {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
 
-  log_event($self, time, $event, "$nick has left channel");
+  log_event($self, $event, time, "$nick has left channel");
 }
 
 
@@ -393,9 +410,9 @@ sub on_notice {
   # Private stuff
   return if $arg =~ /^\[off\]/i;
 
-  return if $::connecting;
+  return if $::Channel_Connecting;
 
-  log_event($self, time, $event, $arg);
+  log_event($self, $event, time, $arg);
 }
 
 
@@ -406,7 +423,7 @@ sub on_quit {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
-  log_event($self, time, $event, "$nick has quit ($arg)");
+  log_event($self, $event, time, "$nick has quit ($arg)");
 }
 
 
@@ -416,7 +433,7 @@ sub on_nick {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
-  log_event($self, time, $event, "$nick is now known as $arg");
+  log_event($self, $event, time, "$nick is now known as $arg");
 }
 
 # What to do when someone does /topic MSG
@@ -427,12 +444,12 @@ sub on_topic {
   my $arg;
   if(@args == 3) {
     $arg=$args[2];
-    log_event($self, time, $event, "topic is: $arg");
+    log_event($self, $event, time, "topic is: $arg");
   } else {
     $arg=$args[0];
-    log_event($self, time, $event, "$nick has changed the topic to: $arg");
+    log_event($self, $event, time, "$nick has changed the topic to: $arg");
   }
-  $Topic=$arg;
+  $::Channel_Topic=$arg;
 }
 
 
@@ -442,16 +459,16 @@ sub on_join {
   my ($channel) = ($event->to)[0];
   my $user_nick=$event->nick;
   
-  log_event($self, time, $event, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
+  log_event($self, $event, time, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
 
-  return if !$do_welcome;
+  return if !$::Do_Welcome;
 
-  my $logging=($::listening) ? "logging" : "not logging";
+  my $logging=($::Channel_Listening) ? "logging" : "not logging";
 
   my(@intro)=(
-   "Welcome to the $Channel_Title",
-   "I'm currently $logging to $Log_URI",
-   "For extensive help do: /msg $Nick help"
+   "Welcome to the $::Channel_Title",
+   "I'm currently $logging to $::Log_URI",
+   "For extensive help do: /msg $:;Nick help"
   );
 
   my $do_sleep=0;
@@ -463,79 +480,85 @@ sub on_join {
 }
 
 
-sub command_for_me ($$$$) {
-  my($self, $event, $command, $is_private)=@_;
+sub command_for_me ($$$$$) {
+  my($self, $event, $channel, $command, $is_private)=@_;
   my $from_nick=$event->nick;
 
   $command=~s/^\s+//;
 
   my $output='';
 
-  my $dest_nick=($is_private ? $from_nick : $Channel);
+  my $dest_nick=($is_private ? $from_nick : $event->to);
 
   my $valid_password=0;
   if($command =~ s/^password (\S+)\s*//) {
-    if($password eq $1) {
+    if($1 eq $::Password) {
       $valid_password=1;
+    } else {
+      $self->privmsg($dest_nick, "Invalid password");
+      return;
     }
   }
 
-  if($is_private && $valid_password && $command eq 'restart') {
-    $::departing=1;
-    $self->me($Channel, ' is departing');
-    $self->quit;
-    sleep(1);
-    $::connecting=1;
-    $self->connect();
-    return;
-  }
+  if($is_private && $valid_password) {
+
+    if($command eq 'restart') {
+      $::Channel_Departing=1;
+      $self->me($event->to, ' is departing');
+      $self->quit;
+      sleep(1);
+      $::Channel_Connecting=1;
+      $self->connect();
+      return;
+    }
   
-  if($is_private && $valid_password && $command eq 'debug') {
-    $self->privmsg($dest_nick, "Debugging is on");
-    $self->debug(1);
-    return;
-  }
-  
-  if($is_private && $valid_password && $command eq 'nodebug') {
-    $self->privmsg($dest_nick, "Debugging is off");
-    $self->debug(0);
-    return;
+    if($command eq 'debug') {
+      $self->privmsg($dest_nick, "Debugging is on");
+      $self->debug(1);
+      return;
+    }
+    
+    if($command eq 'nodebug') {
+      $self->privmsg($dest_nick, "Debugging is off");
+      $self->debug(0);
+      return;
+    }
   }
   
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
-    $::departing=1;
-    $self->me($Channel, 'is departing');
+    $::Channel_Departing=1;
+    $self->me($event->to, 'is departing');
     # Log who told me to quit
-    log_event($self, time, $event, "Logger told to quit");
+    log_event($self, $event, time, "Logger told to quit");
     $self->quit;
     exit 0;
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off)/i) {
-    if($::listening) {
-      $self->me($Channel, 'is not logging');
+    if($::Channel_Listening) {
+      $self->me($event->to, 'is not logging');
       # Log who turned me off BEFORE turning off logging
-      log_event($self, time, $event, "Logging turned off");
-      $::listening=0;
+      log_event($self, $event, time, "Logging turned off");
+      $::Channel_Listening=0;
     } else {
-      $self->me($Channel, 'is already not logging');
+      $self->me($event->to, 'is already not logging');
     }
     return;
   }
   
   if($command=~ /^(?:hello|log|listen|record|start|begin|on)/i) {
-    if(!$::listening) {
-      $self->me($Channel, 'is logging');
-      $::listening=1;
+    if(!$::Channel_Listening) {
+      $self->me($event->to, 'is logging');
+      $::Channel_Listening=1;
       # Log who turned me on
-      log_event($self, time, $event, "Logging turned on");
+      log_event($self, $event, time, "Logging turned on");
     } else {
-      $self->me($Channel, 'is already logging');
+      $self->me($event->to, 'is already logging');
     }
     return;
   }
 
-  if(!$::listening) {
+  if(!$::Channel_Listening) {
     $output="I'm not logging. ";
   } else {
     $output="I'm logging. ";
@@ -555,11 +578,11 @@ sub command_for_me ($$$$) {
       "  grep [-i] [first-last|max] <perl regex>  - Search the logs",
       "    e.g. grep foo, grep 5 bar, grep -i things [case independent]",
       "    append |mail EMAIL-ADDRESS to email results instead of printing",
-      "I respond to '$Nick, command' in public and '/msg $Nick command' in private",
+      "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
       "Logging Policy: All public output is logged if I am listening except",
       "for any lines starting [off].   All commands to me are logged.",
       "My public output is logged but these lines are not searchable.",
-      "The public logs are at $Log_URI",
+      "The public logs are at $::Log_URI",
     );
     my $do_sleep=0;
     for my $output (@help) {
@@ -573,7 +596,7 @@ sub command_for_me ($$$$) {
   if ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
     my $flags='';
-    my($first,$last)=(0,$Max_Results);
+    my($first,$last)=(0,$::Max_Results);
 
     if($search=~ s/^-i\s+//) {
       $flags='(?i)';
@@ -591,7 +614,7 @@ sub command_for_me ($$$$) {
 	($first,$last)=($1,$2);
 	# Reset if stupid things done
 	if($first > $last) {
-	  ($first,$last)=(0,$Max_Results);
+	  ($first,$last)=(0,$::Max_Results);
 	}
       } else {
         $last=$arg;
@@ -613,8 +636,10 @@ sub command_for_me ($$$$) {
     # Prefix with flags
     $search=$flags.$search;
 
+    my(@lines)=get_logs($self, $::Channel_URI);
+
     my(@results);
-    eval "\@results=grep(/$search/, get_logs())";
+    eval "\@results=grep(/$search/, \@lines)";
     if($!) {
       @results=();
       my $msg=$!; $msg=~ s/^ at .+$//;
@@ -628,20 +653,20 @@ sub command_for_me ($$$$) {
       my $pl=(@results != 1) ? 's' : '';
       my $count=scalar(@results);
       if(open(PIPE,"|/usr/lib/sendmail -t")) {
-	print PIPE "From: $IRC_Name\n";
+	print PIPE "From: $::IRC_Name\n";
 	print PIPE "To: $mail\n";
-	print PIPE "Subject: Results of search '$orig_search' on $Channel_Title\n";
+	print PIPE "Subject: Results of search '$orig_search' on $::Channel_Title\n";
 	print PIPE "\n";
 	print PIPE "This email is the result of a search by\n";
         print PIPE "nick $from_nick ($userhost) on the\n";
-	print PIPE "$Channel_Title\n";
-	print PIPE "This channel is logged at $Log_URI\n";
+	print PIPE "$::Channel_Title\n";
+	print PIPE "This channel is logged at $::Log_URI\n";
 	print PIPE "\n";
 	print PIPE "$count result$pl follow:\n";
 	print PIPE join("\n", reverse @results);
 	close(PIPE);
 	$output.=qq{ Mailed $count result$pl to $mail};
-	log_event($self, time, $event, "Search results from '$orig_search' mailed to $mail");
+	log_event($self, $event, time, "Search results from '$orig_search' mailed to $mail");
       } else {
 	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
       }
@@ -653,23 +678,83 @@ sub command_for_me ($$$$) {
 	$output.=" (showing $first...$last)";
       }
       $self->privmsg($dest_nick, $output);
-      log_event($self, time, $event, $output) unless $is_private;
+      log_event($self, $event, time, $output) unless $is_private;
 
       my $count=0;
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
 	$self->privmsg($dest_nick, $output);
-	log_event($self, time, $event, $output) unless $is_private;
+	log_event($self, $event, time, $output) unless $is_private;
 	$count++;
-	last if $count > $Max_Max_Results;
+	last if $count > $::Max_Max_Results;
       }
       return;
     }
   } else {
-    $output.="I don't understand '$command', $from_nick.  Try /msg $Nick help";
+    $output.="I don't understand '$command', $from_nick.  Try /msg $::Nick help";
   }
 
   $self->privmsg($dest_nick, $output);
-  log_event($self, time, $event, $output) unless $is_private;
+  log_event($self, $event, time, $output) unless $is_private;
+}
+
+sub xml_escape ($) {
+  my $string=shift;
+  $string =~ s/\&/\&amp;/g;
+  $string =~ s/</\&lt;/g;
+  $string =~ s/>/\&gt;/g;
+  $string =~ s/[\x00-\x1F]//g;  # remove ASCII 0-31
+  $string =~ s/([\x80-\xFF])/"\&#".ord($1).";"/ge; # escape ASCII 128-255
+  $string;
+}
+
+
+sub join_channel($$) {
+  my($uri, $title)=@_;
+
+  my $channel=$uri->channel;
+  $::Config{$channel}->{URI}=$uri;
+  $::Config{$channel}->{Title}=$title;
+  $::Config{$channel}->{Listening}=1;
+  $::Config{$channel}->{Departing}=0;
+  $::Config{$channel}->{Connecting}=1;
+
+  # Set globals that should be per-channel
+  $::Channel_URI=$uri;
+  $::Channel_Title=$title;
+  $::Channel_Listening=1;
+  $::Channel_Departing=0;
+  $::Channel_Connecting=1;
+
+  my $user_name=$uri->channel."-logger";
+
+  my $conn = $::IRC->newconn(Nick    => $::Nick,
+			     Server  => $uri->host,
+			     Port    => $uri->port,
+			     Ircname => $::IRC_Name,
+			     Username => $user_name,
+			     LocalAddr => $::Host);
+
+  die "$::program: Cannot create connection to $uri\n" 
+    unless $conn;
+
+  # Install handlers
+  # On 'end of MOTD' event, join ilrt channel
+  $conn->add_global_handler(376, \&on_connect);
+  $conn->add_global_handler(353, \&on_names);
+  $conn->add_global_handler('disconnect', \&on_disconnect);
+
+  $conn->add_handler('msg', \&on_msg);
+  $conn->add_handler('public', \&on_public);
+  $conn->add_handler('part', \&on_part);
+  $conn->add_handler('join', \&on_join);
+  $conn->add_handler('kick', \&on_disconnect);
+  $conn->add_handler('caction', \&on_caction);
+  $conn->add_handler('quit', \&on_quit);
+  $conn->add_handler('nick', \&on_nick);
+  $conn->add_handler('nicknameinuse', \&on_nicknameinuse);
+  $conn->add_handler('topic', \&on_topic);
+  $conn->add_handler('notice', \&on_notice);
+
 }
