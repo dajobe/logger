@@ -197,14 +197,14 @@ sub command_for_me ($$$) {
 
   my $output='';
 
-  if($command=~ /^(?:quit|terminate|die die die)/i) {
+  if($command=~ /^(?:quit|finish|terminate|die die die)/i) {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
     exit 0;
   }
   
-  if($command=~ /^(?:be quiet|shut up|silence|stop|cease|desist)/i) {
+  if($command=~ /^(?:be quiet|shut up|silence|sshush|stop)/i) {
     if($::listening) {
       $conn->me($Channel, ' is not listening');
       $::listening=0;
