@@ -240,7 +240,7 @@ EOT
 # MAIN CODE
 &main;
 
-exit 0;
+exit(0);
 
 
 ######################################################################
@@ -421,7 +421,7 @@ sub Channel_open_logs ($) {
     mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
     # Failed!
     if (! -d $log_dir) {
-      $conn->privmsg("#$channel_name", "failed to create chat log dir, quitting");
+      log_admin_event($self, undef, time, "Failed to create chat log dir $log_dir - $!");
       unlink $::PID_File;
       exit(0);
     }
@@ -437,7 +437,7 @@ sub Channel_open_logs ($) {
     my $txt_log_file=$log_files{txt};
     
     if (!$self->{FH}->{txt}->open(">>$txt_log_file")) {
-      $conn->privmsg("#$channel_name", "failed to open text log file, quitting - $!");
+      log_admin_event($self, undef, time, "Failed to create text log file $txt_log_file - $!");
       unlink $::PID_File;
       exit(0);
     }
@@ -453,7 +453,7 @@ sub Channel_open_logs ($) {
     if (!-r $html_log_file) {	# new file?
       $html_log_fh=$self->{FH}->{html}=new IO::File;
       if (!$html_log_fh->open(">$html_log_file")) {
-	$conn->privmsg("#$channel_name", "failed to open HTML log file, quitting - $!");
+	log_admin_event($self, undef, time, "Failed to create HTML log file $html_log_file - $!");
 	unlink $::PID_File;
 	exit(0);
       }
@@ -485,7 +485,7 @@ EOT
     } else {
       $html_log_fh=$self->{FH}->{html}=new IO::File;
       if (!$html_log_fh->open("+<$html_log_file")) {
-        $conn->privmsg("#$channel_name", "failed to append HTML log file, quitting - $!");
+	log_admin_event($self, undef, time, "Failed to append to HTML log file $html_log_file - $!");
         unlink $::PID_File;
         exit(0);
       }
@@ -511,7 +511,7 @@ EOT
     $rdf_log_fh=$self->{FH}->{rdf}=new IO::File;
 
     if (!$rdf_log_fh->open(">$rdf_log_file")) {
-      $conn->privmsg("#$channel_name", "failed to open RDF log file, quitting - $!");
+      log_admin_event($self, undef, time, "Failed to create RDF log file $rdf_log_file - $!");
       unlink $::PID_File;
       exit(0);
     }
@@ -531,7 +531,7 @@ EOT
   } else {
     $rdf_log_fh=$self->{FH}->{rdf}=new IO::File;
     if (!$rdf_log_fh->open("+<$rdf_log_file")) {
-      $conn->privmsg("#$channel_name", "failed to append to RDF log file, quitting - $!");
+      log_admin_event($self, undef, time, "Failed to append to RDF log file $rdf_log_file - $!");
       unlink $::PID_File;
       exit(0);
     }
@@ -658,7 +658,7 @@ EOT
 
 sub log_admin_event ($$$;$) {
   my($self, $event, $t, $msg)=@_;
-  my $nick=$event->nick;
+  my $nick=$event ? $event->nick : '';
 
   my @tm = gmtime($t);
   $tm[5]+= 1900; $tm[4]++;
@@ -666,7 +666,11 @@ sub log_admin_event ($$$;$) {
   my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
 
   my $txt_msg=$nick ? qq{<$nick> $msg} : $msg;
-  print $::Admin_LOG "${date}Z${time} $txt_msg\n";
+  if($::Admin_LOG) {
+    print $::Admin_LOG "${date}Z${time} $txt_msg\n";
+  } else {
+    warn "${date}Z${time} $txt_msg\n";
+  }
 }
 
 
@@ -735,7 +739,7 @@ sub on_disconnect {
 
   log_admin_event($self, $event, time, "Attempting to reconnect");
   unlink $::PID_File;
-  exit 0;
+  exit(0);
 }
 
 
@@ -920,7 +924,7 @@ sub command_for_me ($$$$$) {
       log_admin_event($self, $event, time, "Logger told to quit");
       $self->quit;
       unlink $::PID_File;
-      exit 0;
+      exit(0);
     }
   
     if($command eq 'restart') {
