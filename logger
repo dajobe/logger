@@ -288,6 +288,12 @@ sub Channel_new ($$$) {
     $self->{FH}->{$type}=undef;
   }
 
+  # Prefix of log files - add ".html" etc. to give file name
+  $self->{LogFilePrefix}=undef;
+
+  # Prefix of log URIs or undef if no URI
+  $self->{LogURIPrefix}=undef;
+
   push(@::Channels, $self);
 
   $self;
@@ -329,7 +335,7 @@ sub Channel_join($) {
   $conn->add_handler('public', \&on_public);
   $conn->add_handler('part', \&on_part);
   $conn->add_handler('join', \&on_join);
-  $conn->add_handler('kick', \&on_disconnect);
+  $conn->add_handler('kick', \&on_kick);
   $conn->add_handler('caction', \&on_caction);
   $conn->add_handler('quit', \&on_quit);
   $conn->add_handler('nick', \&on_nick);
@@ -416,9 +422,8 @@ sub Channel_open_logs ($) {
   my(%log_files);
   
   if (my $log_name=$self->{LogName}) {
-    for my $type (@{$self->{LogTypes}}) {
-      $log_files{$type}="$log_name.$type";
-    }
+    $self->{LogFilePrefix}=$log_name;
+    $self->{LogURIPrefix}=$::Log_URI if $::Log_URI;
   } else {
     my $log_dir=Channel_get_log_dir($self);
     
@@ -429,11 +434,13 @@ sub Channel_open_logs ($) {
       unlink $::PID_File;
       exit(0);
     }
-    
-    for my $type (@{$self->{LogTypes}}) {
-      $log_files{$type}="$log_dir/$date.$type";
-    }
-  } 
+    $self->{LogFilePrefix}=$log_dir."/".$date;
+    $self->{LogURIPrefix}=$::Log_URI.$date if $::Log_URI;
+  }
+
+  for my $type (@{$self->{LogTypes}}) {
+    $log_files{$type}=$self->{LogFilePrefix}.".".$type;
+  }
 
 
   if (grep($_ eq 'txt', @{$self->{LogTypes}})) {
@@ -835,6 +842,17 @@ sub on_quit {
 }
 
 
+# What to do when someone is kicked on a channel logger is on.
+sub on_kick {
+  my ($self, $event) = @_;
+  my $nick=$event->nick;
+  my $whom = ($event->to)[0];
+  my $channel_name = ($event->args)[0];
+  my $msg="$nick has kicked $whom from $channel_name";
+  log_event($self, $event, time, $msg);
+}
+
+
 # What to do when someone does /nick
 sub on_nick {
   my ($self, $event) = @_;
@@ -985,6 +1003,21 @@ sub command_for_me ($$$$$) {
     return;
   }
 
+  if($command=~ /^(?:pointer|bookmark|here|where am i\?)/i) {
+    my($log_uri)=$channel->{LogURIPrefix};
+
+    my $output;
+    if($log_uri) {
+      $log_uri.="#".$channel->{Last_ID} if $channel->{Last_ID};
+      $output="See $log_uri";
+    } else {
+      $output="There is no log URI";
+    }
+    $self->privmsg($dest_nick, $output);
+    log_event($self, $event, time, $output) unless $is_private;
+    return;
+  }
+
   if(!$channel->{Listening}) {
     $output="I'm not logging. ";
   } else {
@@ -1004,6 +1037,7 @@ sub command_for_me ($$$$$) {
       " grep [-i] [first-last|max] <perl regex>  - Search the logs",
       "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
       "   append |mail EMAIL-ADDRESS to email results instead of printing",
+      " bookmark    - Give the URI of the current log",
       "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
       "Logging Policy: All public output is logged if I am listening except for"
     );
@@ -1306,6 +1340,11 @@ and recording again with
 (there are other synonyms).  The on/off messages are logged, as well as
 all public commands to logger.  This feature can be turned off
 with -noofftopic
+
+The current log URI, and the position in it can be queried at any time
+with
+  logger, pointer
+or using one of the other aliases: here, bookmark, where am i?
 
 Logger also can perform searches over the logs using the
 C<find> or C<grep> command (or ending anything to logger
