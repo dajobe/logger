@@ -134,12 +134,6 @@ $::Admin_LOG=undef;
 $::PID_File=undef;
 
 
-# Global Variables that should be per-Channel
-
-# 1 global channel var; still preparing to make >1
-$::Channel={};
-
-
 # Keep -w happy
 sub mention {
   my $dummy=@::LogTypes;
@@ -232,9 +226,9 @@ EOT
 
   $::IRC = new Net::IRC;
 
-  &Channel_new($::Channel);
+  my $channel=&Channel_new($uri, $channel_title);
 
-  Channel_join($::Channel, $uri, $channel_title);
+  Channel_join($channel);
 
   # Never returns
   $::IRC->start;
@@ -251,13 +245,18 @@ exit 0;
 # Methods on 'logger Channel' object
 # package Logger::Channel;
 
-sub Channel_new ($) {
-  my $self=shift;
+@::Channels=();
 
-  $self->{Title}='';
+sub Channel_new ($$) {
+  my($uri,$title)=@_;
+
+  my $self={};
+
+  # Channel title
+  $self->{Title}=$title;
 
   # irc:: URI
-  $self->{URI}='';
+  $self->{URI}=$uri;
 
   # topic of channel
   $self->{Topic}='';
@@ -279,20 +278,20 @@ sub Channel_new ($) {
     $self->{FH}->{$type}=undef;
   }
 
+  push(@::Channels, $self);
+
+  $self;
 }
 
-@::Channels=();
 
-sub Channel_join($$$) {
-  my($self, $uri, $title)=@_;
+sub Channel_join($) {
+  my($self)=@_;
+
+  my $uri=$self->{URI};
 
   my $channel_name=$uri->channel;
 
-  $self->{URI}=$uri;
-  $self->{Title}=$title;
   $self->{Listening}=1;
-
-  push(@::Channels, $self);
 
   my $user_name=$channel_name."-logger";
 
@@ -330,10 +329,10 @@ sub Channel_join($$$) {
 
 }
 
-sub Channel_by_name($) {
-  my $name=shift;
+sub Channel_by_conn($) {
+  my $conn=shift;
   for my $channel (@::Channels) {
-    return $channel if $channel->uri->channel eq $name;
+    return $channel if $channel->{CONN} == $conn;
   }
 }
 
@@ -540,7 +539,9 @@ sub log_event ($$$;$) {
   my($self, $event, $t, $msg)=@_;
   my $nick=$event->nick;
 
-  return if !$::Channel->{Listening};
+  my $channel=Channel_by_conn($self);
+
+  return if !$channel->{Listening};
 
   my @tm = gmtime($t);
   $tm[5]+= 1900; $tm[4]++;
@@ -549,20 +550,20 @@ sub log_event ($$$;$) {
   my $date_time="$date $time";
 
   # if we're using dated logs and we passed midnight, start new logs
-  if (! defined $::LogName && ($tm[2] < $::Channel->{hour})) {
-    for my $type ($::Channel->{LogTypes}) {
-      $::Channel->{FH}->{$type}->close;
-      $::Channel->{FH}->{$type}=undef;
+  if (! defined $::LogName && ($tm[2] < $channel->{hour})) {
+    for my $type ($channel->{LogTypes}) {
+      $channel->{FH}->{$type}->close;
+      $channel->{FH}->{$type}=undef;
     }
-    Channel_open_logs($::Channel);
+    Channel_open_logs($channel);
   }
 
-  $::Channel->{hour} = $tm[2];
+  $channel->{hour} = $tm[2];
 
 
-  if (grep($_ eq 'txt', @{$::Channel->{LogTypes}})) {
+  if (grep($_ eq 'txt', @{$channel->{LogTypes}})) {
     my $txt_msg=$nick ? qq{<$nick> $msg} : $msg;
-    my $txt_log_fh=$::Channel->{FH}->{txt};
+    my $txt_log_fh=$channel->{FH}->{txt};
     print $txt_log_fh "$time $txt_msg\n";
   }
 
@@ -571,25 +572,25 @@ sub log_event ($$$;$) {
   my $ID="T$time"; $ID =~ s/:/-/g;
 
   # add a unique suffix if necessary
-  if(length($::Channel->{Last_ID}) != length($ID)) {
+  if(length($channel->{Last_ID}) != length($ID)) {
     # If last ID was in same second, need to start from next
     # ID HH-MM-SS-X and increment X
     # otherwise, new ID is OK
-    if ($::Channel->{Last_ID} =~ /^$ID-(\d+)$/) {
+    if ($channel->{Last_ID} =~ /^$ID-(\d+)$/) {
       $ID.="-".($1+1);
     }
-  } elsif($ID eq $::Channel->{Last_ID}) {
+  } elsif($ID eq $channel->{Last_ID}) {
     # Else if was same as last ID, must be first duplicate of this
     # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
     # it unique HH-MM-SS-1
     $ID.="-1";
   }
-  $::Channel->{Last_ID}=$ID;
+  $channel->{Last_ID}=$ID;
 
   my @uris = getURI($msg);
 
-  if (grep($_ eq 'html', @{$::Channel->{LogTypes}})) {
-    my $html_log_fh=$::Channel->{FH}->{html};
+  if (grep($_ eq 'html', @{$channel->{LogTypes}})) {
+    my $html_log_fh=$channel->{FH}->{html};
 
     # seek back
     # @@ note that this assumes the existing data was NL-expanded identically
@@ -605,7 +606,7 @@ sub log_event ($$$;$) {
   }
 
 
-  my $rdf_log_fh=$::Channel->{FH}->{rdf};
+  my $rdf_log_fh=$channel->{FH}->{rdf};
 
   # seek back
   # @@ note that this assumes the existing data was NL-expanded identically
@@ -650,16 +651,18 @@ sub log_admin_event ($$$;$) {
 sub on_connect {
   my ($self, $event) = @_;
   
+  my $channel=Channel_by_conn($self);
+
   my $channel_name;
 
-  if ($::Channel->{URI}->channel =~ m/[\#&]/) {
-      $channel_name = $::Channel->{URI}->channel; # don't add a prefix if one was given
+  if ($channel->{URI}->channel =~ m/[\#&]/) {
+      $channel_name = $channel->{URI}->channel; # don't add a prefix if one was given
   } else {
-      $channel_name ='#' . $::Channel->{URI}->channel; # else assume a public channel
+      $channel_name ='#' . $channel->{URI}->channel; # else assume a public channel
   }
 
   $self->join($channel_name);
-  $::Channel->{Listening}=1;
+  $channel->{Listening}=1;
   $self->me($channel_name, 'is logging');
 }
 
@@ -802,6 +805,8 @@ sub on_nick {
 # What to do when someone does /topic MSG
 sub on_topic {
   my ($self, $event) = @_;
+  my $channel=Channel_by_conn($self);
+
   my $nick=$event->nick;
   my(@args)=$event->args;
   my $arg;
@@ -812,13 +817,15 @@ sub on_topic {
     $arg=$args[0];
     log_event($self, $event, time, "$nick has changed the topic to: $arg");
   }
-  $::Channel->{Topic}=$arg;
+  $channel->{Topic}=$arg;
 }
 
 
 # What to do when someone joins a channel logger is on.
 sub on_join {
   my ($self, $event) = @_;
+  my $channel=Channel_by_conn($self);
+
   my ($channel_name) = ($event->to)[0];
   my $user_nick=$event->nick;
 
@@ -828,10 +835,10 @@ sub on_join {
 
   return if !$::Do_Welcome;
 
-  my $logging=($::Channel->{Listening}) ? "logging" : "not logging";
+  my $logging=($channel->{Listening}) ? "logging" : "not logging";
 
   my(@intro)=(
-   "Welcome to the $::Channel->{Title}",
+   "Welcome to the $channel->{Title}",
    "I'm currently $logging to $::Log_URI",
    "For extensive help do: /msg $::Nick help"
   );
@@ -847,6 +854,7 @@ sub on_join {
 
 sub command_for_me ($$$$$) {
   my($self, $event, $channel_name, $command, $is_private)=@_;
+  my $channel=Channel_by_conn($self);
   my $from_nick=$event->nick;
 
   $command=~s/^\s+//;
@@ -901,11 +909,11 @@ sub command_for_me ($$$$$) {
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off|nolisten)/i) {
-    if($::Channel->{Listening}) {
+    if($channel->{Listening}) {
       $self->me($event->to, 'is not logging');
-      # Log who turned me off BEFORE turning off logging
+      # Log who turned me off
       log_admin_event($self, $event, time, "Logging turned off");
-      $::Channel->{Listening}=0;
+      $channel->{Listening}=0;
     } else {
       $self->me($event->to, 'is already not logging');
     }
@@ -913,11 +921,11 @@ sub command_for_me ($$$$$) {
   }
   
   if($command=~ /^(?:hello|log|listen|record|start|begin|on|listen)/i) {
-    if(!$::Channel->{Listening}) {
+    if(!$channel->{Listening}) {
       $self->me($event->to, 'is logging');
-      $::Channel->{Listening}=1;
       # Log who turned me on
       log_admin_event($self, $event, time, "Logging turned on");
+      $channel->{Listening}=1;
     } else {
       $self->me($event->to, 'is already logging');
     }
@@ -925,15 +933,15 @@ sub command_for_me ($$$$$) {
   }
 
   if($command=~ /^(?:sync)/i) {
-    for my $type ($::Channel->{LogTypes}) {
-      $::Channel->{FH}->{$type}->close;
-      $::Channel->{FH}->{$type}=undef;
+    for my $type ($channel->{LogTypes}) {
+      $channel->{FH}->{$type}->close;
+      $channel->{FH}->{$type}=undef;
     }
-    Channel_open_logs($::Channel);
+    Channel_open_logs($channel);
     return;
   }
 
-  if(!$::Channel->{Listening}) {
+  if(!$channel->{Listening}) {
     $output="I'm not logging. ";
   } else {
     $output="I'm logging. ";
@@ -1032,7 +1040,7 @@ sub command_for_me ($$$$$) {
     # Prefix with flags
     $search=$flags.$search;
 
-    my(@lines)=Channel_get_log_lines($::Channel);
+    my(@lines)=Channel_get_log_lines($channel);
 
     my(@results);
     eval "\@results=grep(/$search/, \@lines)";
@@ -1049,7 +1057,7 @@ sub command_for_me ($$$$$) {
       my $pl=(@results != 1) ? 's' : '';
       my $count=scalar(@results);
       if(open(PIPE,"|/usr/lib/sendmail -t")) {
-	my $title=$::Channel->{Title};
+	my $title=$channel->{Title};
 	print PIPE "From: $::IRC_Name\n";
 	print PIPE "To: $mail\n";
 	print PIPE "Subject: Results of search '$orig_search' on $title\n";
