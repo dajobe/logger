@@ -1033,6 +1033,22 @@ sub command_for_me ($$$$$) {
     return;
   }
 
+  if($command=~ /^chump\s*(.+)$/i) {
+    my $item=$1;
+    my($log_uri)=$channel->{LogURIPrefix};
+
+    my $output;
+    if($log_uri) {
+      $log_uri.="#".$channel->{Last_ID} if $channel->{Last_ID};
+      $output="$item:See [$log_uri|discussion]";
+    } else {
+      $output="There is no log URI";
+    }
+    $self->privmsg($dest_nick, $output);
+    log_event($self, $event, time, $output) unless $is_private;
+    return;
+  }
+
   if(!$channel->{Listening}) {
     $output="I'm not logging. ";
   } else {
@@ -1047,12 +1063,13 @@ sub command_for_me ($$$$$) {
   if($command=~ /^help/i) {
     my(@help)=(
       "The commands I know are:",
-      " silence     - Stop logging (also: stop, off, ...)",
-      " listen      - Start logging (also: start, on, ...)",
+      " silence      - Stop logging (also: stop, off, ...)",
+      " listen       - Start logging (also: start, on, ...)",
       " grep [-i] [first-last|max] <perl regex>  - Search the logs",
       "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
       "   append |mail EMAIL-ADDRESS to email results instead of printing",
-      " bookmark    - Give the URI of the current log",
+      " bookmark     - Give the URI of the current log",
+      " chump LETTER - Record the URI of the current log under chump LETTER",
       "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
       "Logging Policy: All public output is logged if I am listening except for"
     );
@@ -1274,16 +1291,10 @@ with
   logger, pointer
 or using one of the other aliases: here, bookmark, where am i?
 
-Logger also can perform searches over the logs using the
-C<find> or C<grep> command (or ending anything to logger
-with C<?>). It returns matches to the given perl regex in
-recent output, most recent first. See the help text for more details.
-The search results can be emailed to somebody by appending
-C<|MAIL-ADDRESS> to the end of the search line (you must have a
-space before the C<|>).  Selected results can be returned by
-prefixing the command with a count or a range like this:
-  /msg logger grep 5 things
-  /msg logger grep 10-20 things
+The current log URI can be recorded in a particular chump bot item
+using:
+  logger, chump D
+to record the discussion below item D.
 
 Logger has some administrative commands that can be found from:
   /msg logger adminhelp
