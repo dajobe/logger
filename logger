@@ -175,7 +175,10 @@ EOT
     seek(RLOG, -length($rdf_suffix), 2) # 2= SEEK_END
   }
 
-  my $ID="$time";
+  # Make a legal XML id from the time
+  my $ID="$time"; $ID =~ s/:/-/g;
+
+  # add a unique suffix if necessary
   if($ID eq $Last_ID) {
     if($ID !~ /-/) {
       $ID.="-1";
@@ -184,6 +187,8 @@ EOT
     }
   }
   $Last_ID=$ID;
+
+
   print RLOG <<"EOT";
       <rdf:li rdf:ID="$ID"><foaf:chatEvent>
         <dc:date>${date}T${time}Z</dc:date>
@@ -591,7 +596,7 @@ sub command_for_me ($$$$) {
       }
     } else {
       my $pl=(@results != 1) ? 's' : '';
-      $output.=" I found ".scalar(@results)." answer$pl";
+      $output.=" I found ".scalar(@results)." answer$pl for '$orig_search'";
       $last=@results if $last > @results;
       if($first !=0 || $last != @results) {
 	$output.=" (showing $first...$last)";
@@ -643,4 +648,3 @@ $irc->start;
 
 
 exit 0;
-
