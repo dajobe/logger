@@ -20,8 +20,10 @@ my $IRC_Name='Chat Logger';
 my $Max_Results=5;
 my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
-my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
-my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
+#my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
+#my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
+
+my $Last_ID='';
 
 %ENV=();
 $ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
@@ -60,11 +62,11 @@ sub xml_escape ($) {
 
 $::program=basename $0;
 
-$::ARGS="$0 @ARGV";
+@::ARGS=($0,@ARGV);
 
-die "Usage: $program irc://host[:port]/channel,isnick,needpass log-dir\n"
-  unless @ARGV==2;
-my($uri_string,$log_root)=@ARGV;
+die "Usage: $program channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
+  unless @ARGV==4;
+my($uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
 
 my $uri;
@@ -77,6 +79,9 @@ my $Channel='#'.$uri->channel;
 my $Server=$uri->host;
 my $Port=$uri->port;
 my $Log_Root=$log_root;
+my $Log_URI=$log_uri_string;
+my $Channel_Title=$channel_title;
+my $Topic='';
 
 
 my $host;
@@ -103,7 +108,8 @@ $::departing=0;
 # Logging
 
 sub log_event ($$;$) {
-  my($t, $msg, $nick)=@_;
+  my($t, $event, $msg)=@_;
+  my $nick=$event->nick;
 
   return if !$::listening;
 
@@ -127,7 +133,7 @@ sub log_event ($$;$) {
   my $log_file = "$log_dir/$date.txt";
   my $rdf_log_file = "$log_dir/$date.rdf";
 
-  my $rdf_suffix="    </rdf:Seq>\n  </foaf:ChatChannel>\n</rdf:Description>\n</rdf:RDF>\n";
+  my $rdf_suffix="    </rdf:Seq>\n  </foaf:chatEventList>\n</foaf:ChatChannel>\n</rdf:RDF>\n";
 
 
   # Failed!
@@ -149,9 +155,10 @@ sub log_event ($$;$) {
     print RLOG <<"EOT";
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
          xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:wn="http://xmlns.com/wordnet/1.6/"
          xmlns:foaf="http://xmlns.com/foaf/0.1/">
-<rdf:Description rdf:about="$uri_string">
-  <foaf:ChatChannel>
+<foaf:ChatChannel rdf:about="$uri_string">
+  <foaf:chatEventList>
     <rdf:Seq>
 EOT
   } else {
@@ -164,13 +171,18 @@ EOT
     seek(RLOG, -length($rdf_suffix), 2) # 2= SEEK_END
   }
 
+  my $ID="$time";
+  if($ID eq $Last_ID) {
+    $ID.="-1";
+  }
+  $Last_ID=$ID;
   print RLOG <<"EOT";
-      <rdf:li rdf:parseType="Resource">
-        <dc:date>${date}T$time</dc:date>
+      <rdf:li rdf:ID="$ID"><foaf:chatEvent>
+        <dc:date>${date}T${time}Z</dc:date>
 EOT
   print RLOG qq{        <dc:description>}.xml_escape($msg).qq{</dc:description>\n};
-  print RLOG qq{        <foaf:nick>$nick</foaf:nick>\n} if $nick;
-  print RLOG qq{      </rdf:li>\n};
+  print RLOG qq{        <dc:creator><wn:Person foaf:nick="$nick"/></dc:creator>\n} if $nick;
+  print RLOG qq{      </foaf:chatEvent></rdf:li>\n};
   print RLOG $rdf_suffix;
 
   close(RLOG);
@@ -221,6 +233,18 @@ sub on_connect {
   $conn->me($Channel, 'is logging');
 }
 
+# What to do when logger's nick is already used
+sub on_nicknameinuse {
+  my ($self, $event) = @_;
+  
+  if ($Nick != /_/) {
+    $Nick.="_1";
+  } else {
+    $Nick++; # magical increment
+  }
+  $conn->nick($Nick);
+}
+
 
 # Prints the names of people in a channel when we enter.
 sub on_names {
@@ -230,7 +254,7 @@ sub on_names {
   # splice() only works on real arrays. Sigh.
   ($channel, @list) = splice @list, 2;
   
-  log_event(time, "Users on $channel: @list");
+  log_event(time, $event, "Users on $channel: @list");
 }
 
 
@@ -238,11 +262,11 @@ sub on_names {
 sub on_disconnect {
   my ($self, $event) = @_;
   
-  log_event(time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+  log_event(time, $event, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
 
   return if $::departing;
 
-  log_event(time, "Attempting to reconnect");
+  log_event(time, $event, "Attempting to reconnect");
   sleep(1);
   $self->connect();
 }
@@ -258,7 +282,7 @@ sub on_msg {
   my $nick = $event->nick;
   
   my $arg = join(' ', $event->args);
-  command_for_me($self, $nick, $arg, 1);
+  command_for_me($self, $event, $arg, 1);
 }
 
 
@@ -273,10 +297,10 @@ sub on_public {
   return if $arg =~ /^\[off\]/i;
 
   if ($arg =~ /^$mynick,\s+(.*)$/) {
-    command_for_me($self, $nick, $1, 0);
+    command_for_me($self, $event, $1, 0);
   }
 
-  log_event(time, $arg, $nick);
+  log_event(time, $event, $arg);
 }
 
 
@@ -289,7 +313,7 @@ sub on_caction {
   # Private stuff
   return if $arg =~ /^\[off\]/i;
 
-  log_event(time, "$nick $arg", $nick);
+  log_event(time, $event, "* $nick $arg");
 }
 
 
@@ -297,8 +321,45 @@ sub on_caction {
 sub on_part {
   my ($self, $event) = @_;
   my ($channel) = ($event->to)[0];
-  
-  log_event(time, "left channel", $event->nick);
+  my $nick=$event->nick;
+
+  log_event(time, $event, "$nick has left channel");
+}
+
+
+# What to do when someone leaves a channel logger is on.
+sub on_quit {
+  my ($self, $event) = @_;
+  my ($channel) = ($event->to)[0];
+  my $nick=$event->nick;
+  my $arg = join(' ', $event->args);
+  log_event(time, $event, "$nick has quit ($arg)");
+}
+
+
+# What to do when someone does /nick
+sub on_nick {
+  my ($self, $event) = @_;
+  my ($channel) = ($event->to)[0];
+  my $nick=$event->nick;
+  my $arg = join(' ', $event->args);
+  log_event(time, $event, "$nick is now known as $arg");
+}
+
+# What to do when someone does /topic MSG
+sub on_topic {
+  my ($self, $event) = @_;
+  my $nick=$event->nick;
+  my(@args)=$event->args;
+  my $arg;
+  if(@args == 3) {
+    $arg=$args[2];
+    log_event(time, $event, "topic is: $arg");
+  } else {
+    $arg=$args[0];
+    log_event(time, $event, "$nick has changed the topic to: $arg");
+  }
+  $Topic=$arg;
 }
 
 
@@ -308,7 +369,7 @@ sub on_join {
   my ($channel) = ($event->to)[0];
   my $user_nick=$event->nick;
 
-  log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost), $user_nick);
+  log_event(time, $event, sprintf("%s (%s) has joined $channel", $user_nick, $event->userhost));
 
   my $logging=($::listening) ? "logging" : "not logging";
 
@@ -327,7 +388,8 @@ sub on_join {
 
 
 sub command_for_me ($$$$) {
-  my($self, $from_nick, $command, $is_private)=@_;
+  my($self, $event, $command, $is_private)=@_;
+  my $from_nick=$event->nick;
 
   $command=~s/^\s+//;
 
@@ -340,14 +402,25 @@ sub command_for_me ($$$$) {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
-    exec $ARGS;
+    sleep(1);
+    exec @::ARGS;
+  }
+  
+  if($is_private && $command eq 'debuggery') {
+    $conn->debug(1);
+    return;
+  }
+  
+  if($is_private && $command eq 'undebuggery') {
+    $conn->debug(0);
+    return;
   }
   
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
     $::departing=1;
     $conn->me($Channel, 'is departing');
     # Log who told me to quit
-    log_event(time, "Logger told to quit", $from_nick);
+    log_event(time, $event, "Logger told to quit");
     $conn->quit;
     exit 0;
   }
@@ -357,7 +430,7 @@ sub command_for_me ($$$$) {
       $conn->me($Channel, 'is not logging');
       $::listening=0;
       # Log who turned me off
-      log_event(time, "Logging turned off", $from_nick);
+      log_event(time, $event, "Logging turned off");
     } else {
       $conn->me($Channel, 'is already not logging');
     }
@@ -369,7 +442,7 @@ sub command_for_me ($$$$) {
       $conn->me($Channel, 'is logging');
       $::listening=1;
       # Log who turned me on
-      log_event(time, "Logging turned on", $from_nick);
+      log_event(time, $event, "Logging turned on");
     } else {
       $conn->me($Channel, 'is already logging');
     }
@@ -456,13 +529,13 @@ sub command_for_me ($$$$) {
 	$output.=" (showing $first...$last)";
       }
       $conn->notice($dest_nick, $output);
-      log_event(time, $output, $Nick) unless $is_private;
+      log_event(time, $event, $output) unless $is_private;
 
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
 	$conn->notice($dest_nick, $output);
-	log_event(time, $output, $Nick) unless $is_private;
+	log_event(time, $event, $output) unless $is_private;
       }
       return;
     }
@@ -471,7 +544,7 @@ sub command_for_me ($$$$) {
   }
 
   $conn->notice($dest_nick, $output);
-  log_event(time, $output, $Nick) unless $is_private;
+  log_event(time, $event, $output) unless $is_private;
 }
 
 
@@ -488,6 +561,10 @@ $conn->add_handler('part', \&on_part);
 $conn->add_handler('join', \&on_join);
 $conn->add_handler('kick', \&on_disconnect);
 $conn->add_handler('caction', \&on_caction);
+$conn->add_handler('quit', \&on_quit);
+$conn->add_handler('nick', \&on_nick);
+$conn->add_handler('nicknameinuse', \&on_nicknameinuse);
+$conn->add_handler('topic', \&on_topic);
 
 
 $irc->start;
