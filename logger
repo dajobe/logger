@@ -1135,7 +1135,7 @@ sub ensure_utf8 ($) {
   my $text = shift;
 
   # If it cannot be decoded as UTF-8...
-  my $t=$text;
+  my $t="<fake>".$text."</fake>";
   eval { decode("utf8", $t, Encode::FB_CROAK); };
   if($@) {
     # Assume it is latin-1 (there is no real IRC encoding), encode as UTF-8
