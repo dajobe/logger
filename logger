@@ -173,7 +173,11 @@ EOT
 
   my $ID="$time";
   if($ID eq $Last_ID) {
-    $ID.="-1";
+    if($ID != /-/) {
+      $ID.="-1";
+    } else {
+      $ID++; # magical increment
+    }
   }
   $Last_ID=$ID;
   print RLOG <<"EOT";
