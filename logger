@@ -267,6 +267,9 @@ sub command_for_me ($$$$) {
     if($search=~ s/^(\d+)\s+(?:things about\s+|)//) {
       $max=$1;
     }
+
+    my $orig_search=$search;
+
     # Only allow a few regexes
     $search =~ s/[^a-z0-9A-Z\.+* ]/./g;
 
@@ -275,16 +278,17 @@ sub command_for_me ($$$$) {
 
     my(@bits)=grep(/$search/, get_logs());
     if (!@bits) {
-      $output.=" Nothing found for '$search' :-(";
+      $output.=" Sorry, nothing found for '$orig_search' (internally: "$search")";
     } else {
-      $output.=" Found ".scalar(@bits)." answers:\n";
+      my $pl=(@bits != 1) ? 's' : '';
+      $output.=" I found ".scalar(@bits)." answer$pl:\n";
       $conn->notice($dest_nick, $output);
       for(my $i=0; $i< @bits; $i++) {
 	if($i > $max) {
 	  $conn->notice($dest_nick, "Truncated after $max items\n");
 	  last;
 	}
-	$output="$i: ".$bits[$i]."\n";
+	$output="$i) ".$bits[$i]."\n";
 	$conn->notice($dest_nick, $output);
       }
       return;
