@@ -173,7 +173,7 @@ EOT
 
   my $ID="$time";
   if($ID eq $Last_ID) {
-    if($ID != /-/) {
+    if($ID !~ /-/) {
       $ID.="-1";
     } else {
       $ID++; # magical increment
@@ -241,7 +241,7 @@ sub on_connect {
 sub on_nicknameinuse {
   my ($self, $event) = @_;
   
-  if ($Nick != /_/) {
+  if ($Nick !~ /_/) {
     $Nick.="_1";
   } else {
     $Nick++; # magical increment
