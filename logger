@@ -2149,7 +2149,6 @@ and options are:
   -admin PATH    Directory for administrative logs and PID files
   -helpuri URI   specifies the name of a more detailed help document
   -cvs           commit logs to CVS; -lroot PATH must be specified
-  -html          Write an XHTML log as well as text and RDF.
   -idleparttime SEC  leave ('part') a channel if it has been quite for more
                      than SEC seconds.  If s==0 (the default), do not leave.
   -log PATTERN   Name pattern for log files; uses strftime() substitutions,
@@ -2164,6 +2163,7 @@ and options are:
 
  simple on/off options:
   -actions       Track action items
+  -html          Write an XHTML log as well as text and RDF
   -noinvites     Do not allow invite command
   -noinitiallog  Do not log the initial channel (specified in CHANNEL-URI)
   -nome          Do not log /me messages (WAS -noaction in logger 1.76)
