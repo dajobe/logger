@@ -1,0 +1,111 @@
+#!/usr/bin/perl -w
+#
+# Create IRC Chat search indexes
+#
+# $Id$
+#
+# (C) Copyright 2004 Dave Beckett, ILRT, University of Bristol
+# http://purl.org/net/dajobe/
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+# USAGE build-search [channels to update]
+#
+# Index the specific channels if named, otherwise just the live ones
+#
+# Configuration:
+# Set @potential_channels to a list of the potential channels to
+# index - used to validate the arguments above.
+# Set @always_live_channels to the ones that are always live and indexed.
+#
+# For the rest, read the source.
+#
+#
+
+use warnings;
+use strict;
+
+my $home='/wherever';
+my $logs="$home/chat-logs";
+my $indexes="$home/indexes";
+my $root="$logs/servers";
+
+$ENV{PATH}='/usr/local/bin:/bin:/usr/bin:/usr/sbin:/sbin';
+$ENV{TZ}='UTC';
+$ENV{BASH_ENV}='';
+
+my(@potential_channels)=qw(your-channels-here);
+my(@always_live_channels)=qw(your-always-live-channels-here);
+my(%always_live)=map {$_ => 1} @always_live_channels;
+
+my(@channels);
+
+if(@ARGV) { 
+  if ($ARGV[0] eq '--all') {
+    @channels=@potential_channels;
+  } else {
+    for my $chan (@ARGV) { 
+      if ($chan =~ /^(\w+)$/) {
+	push(@channels, $1);
+      } else {
+	warn "$0: Bad channel $chan\n";
+      }
+    }
+    die "$0: No good channels in @ARGV\n" unless @channels;
+  }
+} else {
+  for my $channel (@potential_channels) {
+    my $live_file="$home/$channel-live";
+    push(@channels, $channel) if -r $live_file || $always_live{$channel};
+  }
+}
+
+
+my(@t)=reverse ((gmtime(time))[3..5]);
+$t[0]+=1900; $t[1]++;
+my $today=sprintf("%04d-%02d-%02d", @t);
+
+
+for my $channel (@channels) {
+  my $dir="$root/$channel";
+  chdir $dir or die "Cannot chdir $dir - $!\n";
+
+  my $index_file=$indexes."/".$channel;
+
+  my(@dates);
+  my(%seen);
+  opendir(DIR, $dir) or die "Cannot opendir $dir - $!\n";
+  while(my $entry=readdir(DIR)) {
+    next unless $entry =~ /^(\d\d\d\d-\d\d-\d\d).rdf$/;
+    $seen{$1}=1;
+  }
+  closedir(DIR);
+  
+  open(OUT, ">$index_file") or die "Cannot create $index_file - $!\n";
+  for my $date (reverse sort keys %seen) {
+    next if $date eq $today;
+    my $text_file="$dir/$date.txt";
+
+    next unless -r $text_file;
+
+    open(IN, "<$text_file") or die "Cannot read $text_file - !$\n";
+    my(@lines)=reverse map {chomp; $_="$date ".$_; $_;} <IN>;
+    close(IN);
+    print OUT join("\n", @lines),"\n";
+  }
+  close(OUT);
+}
+
