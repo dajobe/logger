@@ -710,7 +710,8 @@ sub on_nicknameinuse {
   if ($::Nick !~ /_/) {
     $::Nick.="_1";
   } else {
-    $::Nick++; # magical increment
+    my($name,$number)=split(/_/, $::Nick);
+    $::Nick=$name."_".($number+1);
   }
   $self->nick($::Nick);
 }
