@@ -1,0 +1,200 @@
+#!/usr/bin/perl -w
+#
+# Turn xchat chatlogs into RDF Chat Logger format
+#
+# $Source$
+# $Id$
+#
+# (C) Copyright 2003 Dave Beckett, ILRT, University of Bristol
+# http://purl.org/net/dajobe/
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#   
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#   
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# 
+# See http://www.gnu.org/copyleft/gpl.html
+#
+# For documentation run perldoc on this file 'perldoc xchat2logger'
+#
+
+my $year='2003'; # will be set/reset from xchatlog
+
+my $tz_offset= -1;  # Number of hours to adjust time by (BST to GMT= -1)
+
+open(RDF, ">log.rdf");
+open(TEXT, ">log.txt");
+
+print RDF <<"EOT";
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:wn="http://xmlns.com/wordnet/1.6/"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/">
+<foaf:ChatChannel rdf:about="irc://irc.freenode.net/rdfig">
+  <foaf:chatEventList>
+    <rdf:Seq>
+EOT
+
+my(@mnames)=qw/Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
+my(%mname2number);
+for (1..12) {
+  $mname2number{$mnames[$_-1]}=$_;
+}
+
+my $last_id='';
+while(<>) {
+  chop;
+  my $orig_line=$_;
+
+  if(m%^\*+ (BEGIN|ENDING) LOGGING.*(\d\d\d\d)$%) {
+    $year=$2;
+    next;
+  } elsif (m%^\s*$%) {
+    next
+  } if(!s%^(\w\w\w) (\d\d) (\d\d:\d\d:\d\d) %%) {
+    warn "$.: Do not understand 1 '$orig_line'\n";
+    next;
+  }
+  my($mname,$day,$time)=($1,$2,$3);
+  my $month=$mname2number{$mname};
+
+  if($tz_offset != 0) {
+    my($h,$ms)=($time =~ m%^(\d\d)(:\d\d:\d\d)$%);
+    $h += $tz_offset;
+    if($h<0) {
+      $day--; $h=23;
+      if($day<1) {
+	$month--; $day=31; # Yes, well!
+      }
+    }
+    $time=sprintf("%02d", $h).$ms;
+  }
+
+  my $date=sprintf("%04d-%02d-%02d", $year, $month, $day);
+
+  my($nick, $desc);
+  if(m%^(?:--.* sets mode|-MemoServ|--[->]\s+You are now|---\s+Topic for|>\w+<|\-\w+\-|---.*Unknown command|---\s+Disconnected)%) {
+    next;
+  } elsif (m%^-->\s+(.+?) has (joined .*)$%) {
+   $nick=$1;
+   $desc=$2;
+   $nick =~ s%\s+\(.*\)%%;
+   $desc="$nick has $desc";
+  } elsif (m%^<--\s+(.+) has ((?:quit|left).*)$%) {
+   $nick=$1;
+   $desc=$2;
+   $nick =~ s%\s+\(.*\)%%;
+   $desc =~ s%\s+\(.*\)%%;
+   $desc="$nick has $desc";
+  } elsif (m%^---\s+((.+?) is now known as.*)$%) { 
+   $nick=$2;
+   $desc=$1;
+  } elsif (m%^<([^>]+)>(.*)$%) { 
+   $nick=$1;
+   $desc=$2;
+  } elsif (m%^\*\s+(\S+)\s*(.*)$%) { 
+   $nick=$1;
+   $desc="* $nick $2";
+  } elsif (m%^-(.+?)/\#.+?-\s+(.*)$%) { 
+   $nick=$1;
+   $desc=$2;
+  } else {
+    die "$.: Add this: '$_'\n";
+  }
+
+
+  $desc =~ s/^\s+//; $desc =~ s/\s+$//;
+
+  my $xml_desc=$desc;
+  $xml_desc =~ s/\&/\&amp;/g;
+  $xml_desc =~ s/</\&lt;/g;
+  $xml_desc =~ s/</\&gt;/g;
+
+# Stolen from logger:
+  my $id="T$time"; $id =~ s/:/-/g;
+  # add a unique suffix if necessary
+  if($last_id != $id) {
+    # If last ID was in same second, need to start from next
+    # ID HH-MM-SS-X and increment X
+    # otherwise, new ID is OK
+    if ($last_id =~ /^$id-(\d+)$/) {
+      $id.="-".($1+1);
+    }
+  } elsif($id eq $last_id) {
+    # Else if was same as last ID, must be first duplicate of this
+    # ID in this time slot ie last id was HH-MM-SS so add -1 to make 
+    # it unique HH-MM-SS-1
+    $id.="-1";
+  }
+  $last_id=$id;
+# End stolen
+
+  if($nick && defined $xml_desc) {
+    print RDF <<"EOT";
+      <rdf:li>
+       <foaf:chatEvent rdf:ID="$id">
+        <dc:date>${date}T${time}Z</dc:date>
+        <dc:description>$xml_desc</dc:description>
+        <dc:creator><wn:Person foaf:nick="$nick"/></dc:creator>
+       </foaf:chatEvent>
+      </rdf:li>
+EOT
+   print TEXT "$time <$nick> $desc\n";
+  } else {
+    die "$.: Do not understand 2 '$orig_line'\n";
+  }
+}
+
+print RDF <<"EOT";
+    </rdf:Seq>
+  </foaf:chatEventList>
+</foaf:ChatChannel>
+</rdf:RDF>
+EOT
+
+close(RDF);
+close(TEXT);
+
+
+__END__
+
+=pod
+
+=head1 NAME
+
+xchat2logger - Turn xchatlogs into RDF chat logs
+
+=head1 SYNOPSIS
+
+  xchat2logger XCHATLOGFILE
+
+Reads I<XCHATLOGFILE> and emits log.rdf and log.txt in the current
+directory with the RDF and text versions of that log.
+
+Note that no splitting into the log by date is done and you'll
+need to edit xchat2logger to adjust the timezone offset, if you
+are not at UTC.  A dumb attempt is made to correct this by
+simply adding the offset to the current hour, but this may fail
+if it crosses a month boundary.
+
+=head2 LICENSE
+
+GNU GPL version 2 or later - see http://www.gnu.org/copyleft/gpl.html
+
+=head2 AUTHOR
+
+Dave Beckett - http://purl.org/net/dajobe/, 
+Institute for Learning and Research Technology, http://ilrt.org/,
+University of Bristol.
+
+=cut
