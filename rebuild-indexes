@@ -1,0 +1,137 @@
+#!/usr/bin/perl -w
+#
+# Create standalone IRC RDF Chat Logs index
+#
+# $Source$
+# $Id$
+#
+# (C) Copyright 2003 Dave Beckett, ILRT, University of Bristol
+# http://purl.org/net/dajobe/
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#   
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#   
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# 
+# See http://www.gnu.org/copyleft/gpl.html
+#
+# For documentation run perldoc on this file 'perldoc logger'
+#
+
+use strict;
+
+# Standard Perl modules
+use File::Path;
+use File::Basename;
+use Getopt::Long;
+
+
+# Global constants
+$::program=basename $0;
+
+
+sub create_dir_file($$@) {
+  my($period_title, $index_file, @items)=@_;
+ 
+  open(OUT,">$index_file") or die "Cannot create $index_file - $!\n";
+  warn "Creating $index_file\n";
+  print OUT <<"EOT";
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/">
+  <rdf:Seq>
+    <dc:title>$period_title</dc:title>
+EOT
+  for my $item (@items) { 
+    my($item_url,$item_label)=@$item;
+
+    print OUT <<"EOT";
+    <rdf:li>
+      <rdf:Description rdf:about="$item_url">
+        <dc:title>$item_label</dc:title>
+      </rdf:Description>
+    </rdf:li>
+EOT
+  }
+  print OUT <<"EOT";
+  </rdf:Seq>
+</rdf:RDF>
+EOT
+  close(OUT);
+}
+
+
+sub build_index($$) {
+  my($log_root, $log_uri_string)=@_;
+
+  chdir($log_root) or die "$::program: Cannot chdir $log_root - $!\n";
+  opendir(DIR, ".") or die "$::program: Cannot opendir $log_root - $!\n";
+  my(%dates);
+  my(%yms);
+  my(%years);
+  for my $file (readdir(DIR)) {
+    next unless $file =~ /^(((\d\d\d\d)-\d\d)-\d\d).rdf/;
+    my $date=$1;
+    my $ym=$2;
+    my $year=$3;
+    $dates{$date}=$log_uri_string.$file;
+    push(@{$yms{$ym}}, $date);
+    $years{$year}->{$ym}=1;
+  }
+  closedir(DIR);
+
+  my(@recent_dates)=(reverse sort keys %dates)[0..30];
+  my(@recent_yms)=(reverse sort keys %yms)[0..30];
+  my(@recent_years)=(reverse sort keys %years)[0..30];
+
+  create_dir_file("Index", "index.rdf", 
+		  map { [$_.".rdf" , $_] } grep(defined $_, @recent_dates, @recent_yms, @recent_years));
+
+  create_dir_file("Years", "years.rdf", 
+		  map { [$_.".rdf" , $_] } reverse sort keys %years);
+
+  for my $year (keys %years) {
+    my(@yms)=sort keys %{$years{$year}};
+    create_dir_file($year, $year.".rdf", 
+		    map { [$_.".rdf" , $_] } reverse @yms);
+  }
+
+  while(my($ym,$dates)=each %yms) {
+    create_dir_file($ym, $ym.".rdf", 
+		    map { [$_.".rdf" , $_] } reverse @$dates);
+  }
+
+}
+
+
+sub main {
+  my $usage=<<"EOT";
+Usage: $::program log-dir log-URI
+EOT
+  die $usage unless @ARGV == 2;
+  my($log_root, $log_uri_string)=@ARGV;
+
+  if($log_root =~ /^(.+)$/ && -d $1) {
+    $log_root=$1;
+  }
+  
+  die "$::program: log dir $log_root does not exist\n" unless -d $log_root;
+
+  build_index($log_root, $log_uri_string);
+}
+
+
+# MAIN CODE
+&main;
+
+exit(0);
