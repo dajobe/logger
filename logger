@@ -284,7 +284,7 @@ sub command_for_me ($$$$) {
       $output.=" I found ".scalar(@bits)." answer$pl:\n";
       $conn->notice($dest_nick, $output);
       for(my $i=0; $i< @bits; $i++) {
-	if($i > $max) {
+	if($i > $max-1) { # Indexing from zero
 	  $conn->notice($dest_nick, "Truncated after $max items\n");
 	  last;
 	}
