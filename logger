@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# IRC RDF Chat Logger
+# IRC Chat Logger
 #
 # $Source$
 # $Id$
@@ -133,6 +133,9 @@ $::Log_LocalPath=undef;		# include '/' if you need it
 $::LogName_Pattern=undef;
 $::Default_Pattern = '<channel>/%Y-%m-%d';
 
+# True if handles meeting action item commands
+$::Do_Actions=0;
+
 $::ActionLogName_Pattern=undef;
 $::Default_ActionPattern = '<channel>/%Y-%m-%d-actions';
 
@@ -147,6 +150,9 @@ $::Password='';
 
 # Print welcome message?
 $::Do_Welcome=0;
+
+# Allow invites
+$::Do_Invites=1;
 
 # True if leaving (so don't reconnect)
 $::Departing=0;
@@ -191,53 +197,40 @@ $::CVSkeywords = '\$'.'Date\$|\$'.'Date:.*\$|\$'.'Revision\$|\$'.'Revision:.*\$|
 
 
 sub main {
-  my $usage=<<"EOT";
-Usage: $::program [option...] password channel-URI
-  where option is one or more of:
-   -admin <dir>     Directory for administrative logs
-   -cvs             commit logs to CVS
-   -helpuri <URI>   specifies the name of a more detailed help document
-   -html            write an XHTML log
-   -idleparttime <s> part a channel if it has been quite for more than
-                    <s> seconds.  If s==0 (the default), do not part.
-   -notext          Do not write a text log
-   -noinitiallog    Do not log the initial channel (specified in arg1)
-   -log <pattern>   Name pattern for log files; uses strftime() substitutions
-                    plus the string '<channel>'
-                    default is '<channel>/%Y-%m-%d'
-                    (\".txt\", \".html\", and \".rdf\" will be appended)
-   -lroot <dir>     Root directory for logs; '/' is not automatically added
-                    '<server>' will be replaced with host:port
-   -nick <nick>     set the nick
-   -noaction        Do not log /me messages
-   -noofftopic      Do not ignore lines starting with [off]
-   -userhosts       Record user\@host in /join messages
-   -uroot <URI>     URI prefix for logs; '/' is not automatically added
-                    '<server>' will be replaced with host:port
-
-  and channel-URI is like irc://host[:port]/channel
-EOT
+  my $usage="Usage: $::program [option...] PASSWORD CHANNEL-URI\n";
+  # From __DATA__ section below
+  my $scanning=0;
+  while(<DATA>) {
+    if(!$scanning) {
+      $scanning=1 if /PASSWORD CHANNEL-URI/;
+    } else {
+      last if /=head1/;
+      $usage.=$_;
+    }
+  }
 
   my(%do_log_types)=map {$_ => 1} @::DefaultLogTypes;
 
   print '$Id$', "\n";
 
   die $usage unless GetOptions (
-			'action!'   => \$::LogActionMsgs,
+			'actions!'  => \$::Do_Actions,
 			'admin=s'   => \$::AdminDir,
 			'alog=s'    => \$::ActionLogName_Pattern,
 			'cvs!'      => \$::Do_CVS,
+			'invites'   => \$::Do_Invites,
 			'helpuri=s' => \$::HelpURI,
 			'html!'	    => \$do_log_types{'html'},
 			'idleparttime=s' => \$ReaperThreshold,
 			'initiallog!' => \$::LogInitial,
 			'log=s'	    => \$::LogName_Pattern,
 			'lroot=s'   => \$::Log_LocalPath,
+			'me!'       => \$::LogActionMsgs,
 			'nick=s'    => \$::Nick,
 			'offtopic!' => \$::OffTopic,
 			'system!'   => \$::TestMode,
 			'text!'	    => \$do_log_types{'txt'},
-			'uroot=s'     => \$::Log_URI,
+			'uroot=s'   => \$::Log_URI,
 			'userhost!' => \$::LogUserHosts,
 		      ) && @ARGV==2;
 
@@ -265,7 +258,6 @@ EOT
 
   # Set globals
   $::Password=$password;
-  $::Do_Welcome=0;
   $::Departing=0;
   $::Connecting=1;
 
@@ -983,6 +975,9 @@ sub on_invite {
   my @args = $event->args;
   my $channel_name = $args[0];
   my $channel_password = $args[1]; # maybe
+
+  return if !$::Do_Invites;
+
   log_admin_event($self, $event, time, "Invited to $channel_name ($arg)");
 
   $self->join($channel_name, $channel_password);
@@ -1220,7 +1215,8 @@ sub command_for_me ($$$$$) {
   }
   
   # please excuse us
-  if($command=~ /^(?:please\s+|pls\s+)?(?:bye|part|excuse us|leave)/i) {
+  if($::Do_Invites && 
+     $command=~ /^(?:please\s+|pls\s+)?(?:bye|part|excuse us|leave)/i) {
     if($command=~ /^(?:please\s+|pls\s+)?part\s+(\S*)\s*$/i && $1) {
 	$channel_name = $1;
 	$channel = Channel_by_name($channel_name);
@@ -1306,7 +1302,8 @@ sub command_for_me ($$$$$) {
   }
 
   # please ignore action items, please track action items
-  if($command =~ /^(?:please\s+|pls\s+)?((?:ignore|track))\s+action(?:\s+item)?s$/i) {
+  if($::Do_Actions &&
+     $command =~ /^(?:please\s+|pls\s+)?((?:ignore|track))\s+action(?:\s+item)?s$/i) {
       my $which = $1;
       if ($which eq 'ignore') {
 	  $channel->{IgnoreActions} = 1;
@@ -1320,14 +1317,17 @@ sub command_for_me ($$$$$) {
 
   # what [are the] action[ item]s?
   # [please] show [the] action[ item]s?
-  if ($command =~ /^what(?:\s+are\s+the)?\s+action(?:\s+item)?s\?$/i ||
-      $command =~ /^(?:please\s+|pls\s+)?(?:show|list)(?:\s+the)?\s+action(?:\s+item)?s$/i) {
+  if ($::Do_Actions &&
+      ($command =~ /^what(?:\s+are\s+the)?\s+action(?:\s+item)?s\?$/i ||
+       $command =~ /^(?:please\s+|pls\s+)?(?:show|list)(?:\s+the)?\s+action(?:\s+item)?s$/i)
+     ) {
       DisplayActionItems($self, $event, $channel, $from_nick, $dest_nick);
       return 1;
   }
 
   # [please] drop action nn
-  if ($command =~ m/^(?:please\s+|pls\s+)?drop\s+action\s+(.*)$/) {
+  if ($::Do_Actions &&
+      $command =~ m/^(?:please\s+|pls\s+)?drop\s+action\s+(.*)$/) {
       $channel->{MsgTime} = time;
       if ($channel->{IgnoreActions}) {
 	  Say( $self, $dest_nick, "I am ignoring action items, $from_nick" );
@@ -1368,7 +1368,8 @@ sub command_for_me ($$$$$) {
   }
 
   # [please] join <channel> [<password>]
-  if ($command =~ m/^(?:please\s+|pls\s+)?join\s+(\S*)\s*(\S*)\s*$/) {
+  if ($::Do_Invites && 
+      $command =~ m/^(?:please\s+|pls\s+)?join\s+(\S*)\s*(\S*)\s*$/) {
       my $channel_name = $1;
       my $channel_key = $2;
       print "join $channel_name $channel_key from $from_nick\n";
@@ -1405,9 +1406,12 @@ sub command_for_me ($$$$$) {
       " grep [-i] [first-last|max] <perl regex>  - Search the logs",
       "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
       "   append |mail EMAIL-ADDRESS to email results instead of printing",
-      " bookmark    - Give the URI of the current log",
+      " bookmark    - Give the URI of the current log");
+   @help=(@help,
       " show action items - give a list of ACTION: entries",
-      " drop action n - remove entry [n] from the list of action items",
+      " drop action n - remove entry [n] from the list of action items")
+   if $::Do_Actions;
+   @help=(@help,
       "I respond to '$::Nick, command' in public and '/msg $::Nick command' in private",
       "Logging Policy: All public output is logged if I am listening except for"
     );
@@ -1432,10 +1436,12 @@ sub command_for_me ($$$$$) {
   if($command =~ /^adminhelp/i) {
     my(@help)=(
       "Administrative commands are as follows:",
-      "  quit        - I will depart",
-      "  restart     - I will leave and rejoin channel",
-      "  debug       - Turn on debugging",
-      "  nodebug     - Turn off debugging",
+      "  quit         - I will depart",
+      "  restart      - I will leave and rejoin channel",
+      "  debug        - Turn on debugging",
+      "  nodebug      - Turn off debugging",
+      "  announce MSG - Sends message to all channels",
+      "  busy         - Gives summary of channels being listened on",
       "These commands work only with the admin PASSWORD like this:",
       "/msg $::Nick password PASSWORD command'",
     );
@@ -1844,6 +1850,8 @@ sub watch_significant_events ($$$$$$) {
 
     return 0 if !$channel;
 
+    return if !$::Do_Actions;
+
     # ACTION:
     if ($msg =~ m/^\s*(?:ACTION\s*)([-:])\s*(.*)$/) {
 	$channel->{MsgTime} = time;
@@ -2148,44 +2156,53 @@ EOT
 }
 
 
-__END__
+# The documentation starts here.  Perl allows use of this area
+# via the special file handle DATA
+__DATA__
 
 =pod
 
 =head1 NAME
 
-logger - RDF IRC Chat Logger
+logger - IRC Chat Logger
 
 =head1 SYNOPSIS
 
-  logger [options...] PASSWORD CHANNEL-URI > logger.log
+  logger [options...] PASSWORD CHANNEL-URI
 
 An irc logger bot that automatically generated logs for various IRC
 chat channels.  Call it with parameters above where
 
   PASSWORD      Administrator password for some commands
   CHANNEL-URI   IRC channel URI like irc://host[:port]/channel
-  LOG-DIR       Root directory to start writing logs
-  LOG-URI       URI of where the logs appear on the web
 
 and options are:
 
+ main options:
   -admin PATH    Directory for administrative logs and PID files
-  -cvs           commit logs to CVS; -lpath must be specified
+  -helpuri URI   specifies the name of a more detailed help document
+  -cvs           commit logs to CVS; -lroot PATH must be specified
   -html          Write an XHTML log as well as text and RDF.
+  -idleparttime SEC  leave ('part') a channel if it has been quite for more
+                     than SEC seconds.  If s==0 (the default), do not leave.
   -log PATTERN   Name pattern for log files; uses strftime() substitutions
                  plus the string '<channel>'
                  default is <channel>/%Y-%m-%d
                  (\".txt\", \".html\", and \".rdf\" will be appended)
   -lroot PATH    Write logs to PATH/DD-channel.{html,rdf,txt}
-                 '<server>' will be replaced with host:port
+                 '<server>' in PATH will be replaced with host:port
   -nick NICK     Use IRC nick NICK
-
-  -noaction      Do not log /me messages
-  -noofftopic    Do not ignore lines starting with [off]
-  -userhosts     Record user@host from /join messages
   -uroot URI     URI prefix for logs; '/' is not automatically added
                  '<server>' will be replaced with host:port
+
+ simple on/off options:
+  -actions       Track action items
+  -noinvites     Do not allow invite command
+  -noinitiallog  Do not log the initial channel (specified in CHANNEL-URI)
+  -nome          Do not log /me messages (WAS -noaction in logger 1.76)
+  -noofftopic    Do not ignore lines starting with [off]
+  -notext        Do not write a text log
+  -userhosts     Record user@host from /join messages
 
 =head1 DESCRIPTION
 
