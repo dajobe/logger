@@ -96,10 +96,10 @@ sub build_index($$) {
   my(@recent_yms)=(reverse sort keys %yms)[0..30];
   my(@recent_years)=(reverse sort keys %years)[0..30];
 
-  create_dir_file("Index", "index.rdf", 
+  create_dir_file("index", "index.rdf", 
 		  map { [$_.".rdf" , $_] } grep(defined $_, @recent_dates, @recent_yms, @recent_years));
 
-  create_dir_file("Years", "years.rdf", 
+  create_dir_file("years", "years.rdf", 
 		  map { [$_.".rdf" , $_] } reverse sort keys %years);
 
   for my $year (keys %years) {
