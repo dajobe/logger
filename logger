@@ -306,14 +306,19 @@ sub on_join {
 
   log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost), $user_nick);
 
-  my $output="Hello $user_nick, I may be recording you.  At present ";
-  if(!$::listening) {
-    $output.="I'm not listening.";
-  } else {
-    $output.="I'm listening.";
-  }
+  my $listen=($::listening) ? "logging " : "not logging";
 
-  $conn->notice($event->nick, $output);
+  my(@intro)=(
+   "Welcome to the RDF Interest Group IRC - see http://rdfig.xmlhack.com/",
+   "I'm currently $listen to http://ilrt.org/discovery/chatlogs/rdfig/"
+  );
+
+  my $do_sleep=0;
+  for my $output (@intro) {
+   sleep(1) if $do_sleep;
+   $conn->notice($event->nick, $output);
+   $do_sleep=1;
+  }
 }
 
 
@@ -430,12 +435,11 @@ sub command_for_me ($$$$) {
       $conn->notice($dest_nick, $output);
       log_event(time, $output, $Nick) unless $is_private;
 
-      sleep(1);
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
+	sleep(1);
 	$output="$i) ".$results[$i];
 	$conn->notice($dest_nick, $output);
 	log_event(time, $output, $Nick) unless $is_private;
-	sleep(1);
       }
       return;
     }
