@@ -386,7 +386,7 @@ sub on_join {
   my $do_sleep=0;
   for my $output (@intro) {
    sleep(1) if $do_sleep;
-   $conn->notice($event->nick, $output);
+   $conn->privmsg($event->nick, $output);
    $do_sleep=1;
   }
 }
@@ -482,7 +482,7 @@ sub command_for_me ($$$$) {
     my $do_sleep=0;
     for my $output (@help) {
       sleep(1) if $do_sleep;
-      $conn->notice($dest_nick, $output);
+      $conn->privmsg($dest_nick, $output);
       $do_sleep=1;
     }
     return;
@@ -540,13 +540,13 @@ sub command_for_me ($$$$) {
       if($first !=0 || $last != @results) {
 	$output.=" (showing $first...$last)";
       }
-      $conn->notice($dest_nick, $output);
+      $conn->privmsg($dest_nick, $output);
       log_event(time, $event, $output) unless $is_private;
 
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
-	$conn->notice($dest_nick, $output);
+	$conn->privmsg($dest_nick, $output);
 	log_event(time, $event, $output) unless $is_private;
       }
       return;
@@ -555,7 +555,7 @@ sub command_for_me ($$$$) {
     $output.="I don't understand that, $from_nick.  Try /msg $Nick help";
   }
 
-  $conn->notice($dest_nick, $output);
+  $conn->privmsg($dest_nick, $output);
   log_event(time, $event, $output) unless $is_private;
 }
 
