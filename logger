@@ -552,7 +552,7 @@ EOT
 
 sub Channel_close_logs ($) {
   my $self=shift;
-  for my $type ($self->{LogTypes}) {
+  for my $type (@{$self->{LogTypes}}) {
     $self->{FH}->{$type}->close;
     $self->{FH}->{$type}=undef;
   }
