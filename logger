@@ -358,21 +358,32 @@ sub Channel_get_log_dir ($) {
 }
 
 
-# %% RRS: make this work for a specified log name
 sub Channel_get_log_lines ($) {
   my $self=shift;
 
-  my $log_dir=Channel_get_log_dir($self);
+  my(@file_dates);
 
-  return () if !opendir(DIR, $log_dir);
+  if (my $log_name=$self->{LogName}) {
+    @file_dates=["$log_name.txt", undef];
+  } else {
+    my $log_dir=Channel_get_log_dir($self);
+
+    return () if !opendir(DIR, $log_dir);
+
+    for my $file (reverse sort readdir(DIR)) {
+      next unless $file =~ /^(\d\d\d\d-\d\d-\d\d).txt/;
+      my $date=$1;
+      push(@file_dates, ["$log_dir/$file", $date]);
+    }
+    closedir(DIR);
+  }
 
   # In date order, newest lines at top
   my(@results)=();
   # Newest files first
-  for my $file (reverse sort readdir(DIR)) {
-    next unless $file =~ /^(\d\d\d\d-\d\d-\d\d).txt/;
-    my $date=$1;
-    open(LOG, "$log_dir/$file") or next;
+  for my $file_date (@file_dates) {
+    my($file,$date)=@$file_date;
+    open(LOG, $file) or next;
     
     # Append to list, reverse date sorted list - i.e. older entries at end 
     my(@lines);
@@ -380,12 +391,13 @@ sub Channel_get_log_lines ($) {
       chomp;
       # Ignore logger's own output
       next if m%^\d\d:\d\d:\d\d <$::Nick>%;
-      push(@lines, "$date $_") if length $_;
+      next if !length $_;
+      $_="$date $_" if $date;
+      push(@lines, $_);
     };
     close(LOG);
     push(@results, reverse @lines);
   }
-  closedir(DIR);
 
   return(@results);
 }
@@ -1010,7 +1022,7 @@ sub command_for_me ($$$$$) {
   if ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
     my $flags='';
-    my($first,$last)=(0,$::Max_Results);
+    my($first,$last)=(0,$::Max_Results-1);
 
     if($search=~ s/^-i\s+//) {
       $flags='(?i)';
@@ -1028,7 +1040,7 @@ sub command_for_me ($$$$$) {
 	($first,$last)=($1,$2);
 	# Reset if stupid things done
 	if($first > $last) {
-	  ($first,$last)=(0,$::Max_Results);
+	  ($first,$last)=(0,$::Max_Results-1);
 	}
       } else {
         $last=$arg;
@@ -1095,6 +1107,10 @@ sub command_for_me ($$$$$) {
 	$output.=" (showing $first...$last)";
       }
       $self->privmsg($dest_nick, $output);
+
+      # Set result nick to me
+      $event->nick($::Nick);
+
       log_event($self, $event, time, $output) unless $is_private;
 
       my $count=0;
