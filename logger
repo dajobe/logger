@@ -133,6 +133,10 @@ $::Admin_LOG=undef;
 # Process ID
 $::PID_File=undef;
 
+# On connect /msg $user $cmd
+$::Connect_User=undef;
+$::Connect_CMD=undef;
+
 
 ######################################################################
 package URI::irc;
@@ -173,6 +177,8 @@ Usage: $::program [option...] password channel-URI channel-title log-dir log-URI
                     of channel/YYYY-MM-DD
                     (\".txt\", \".html\", and \".rdf\" will be appended)
    -nick <nick>     set the nick
+   -connectuser <user> on connect /msg this user
+   -connectcmd <cmd>   with this command
 
    -noaction	    Do not log /me messages
    -noofftopic      Do not ignore lines starting with [off]
@@ -188,6 +194,8 @@ EOT
 		       'text!'	 => \$do_log_types{'txt'},
 		       'log=s'	 => \$log_name,
 		       'nick=s'	 => \$::Nick,
+		       'connectuser=s'	 => \$::Connect_User,
+		       'connectcmd=s'	 => \$::Connect_CMD,
 		       'userhost!' => \$::LogUserHosts,
 		       'offtopic!' => \$::OffTopic,
 		      ) && @ARGV==5;
@@ -702,6 +710,10 @@ sub on_connect {
       $channel_name = $channel->{URI}->channel; # don't add a prefix if one was given
   } else {
       $channel_name ='#' . $channel->{URI}->channel; # else assume a public channel
+  }
+
+  if($::Connect_User && $::Connect_CMD) {
+    $self->privmsg($::Connect_User, $::Connect_CMD);
   }
 
   log_admin_event($self, $event, time, "Connected to server");
