@@ -1,0 +1,213 @@
+#!/usr/bin/perl -Tw
+#
+# Build XHTML logs from RDF/XML ones made by logger
+#
+# $Id$
+#
+# (C) Copyright 2003 Dave Beckett, ILRT, University of Bristol
+# http://purl.org/net/dajobe/
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#   
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#   
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+# USAGE indexly [--all] [channels to update]
+#
+# Requires xsltproc from libxslt, the XSLT sheets to make the style
+# like those at http://ilrt.org/discovery/chatlogs/xslt/
+# and a tree of logger generated files.  This should be
+# run from crontab "often enough" like once a minute.
+#
+# Note: sed is used on the xsltproc output to turn the XML into XHTML.
+#
+
+use warnings;
+use strict;
+
+# START OF CONFIG
+
+# Files like 'channel-live' live here to signify that channel
+# should be updated; unless it is in the @always_live_channel list below
+my $home='/wherever/logger';
+
+# Where the logger output lives - in subdirectories by channel name below
+# this directory
+my $logs="/wherever/logs";
+
+# Where the XSLT sheets live
+my $xslt="/wherever/xslt";
+
+# Channels being logged potentially
+my(@potential_channels)=qw(channel1 channel2);
+# Channels always being logged
+my(@always_live_channels)=qw(channel1);
+
+# Debug?
+my $debugging=0;
+
+# Re/index all @potential_channels, ignore liveness (or use --all option)
+my $index_all=0;
+
+# END OF CONFIG
+
+
+$ENV{PATH}='/usr/local/bin:/bin:/usr/bin:/usr/sbin:/sbin';
+$ENV{TZ}='UTC';
+$ENV{BASH_ENV}='';
+
+my(%always_live)=map {$_ => 1} @always_live_channels;
+
+
+# BUG: blurb isn't used/working in the XSLT sheets, just set to ''
+# and it is hard-coded per channel in the XSLT.
+my(%channel_params)=(
+   channel1 => [ title => 'My Channel', 
+                url=> "http://example.org/mychannel/home/",
+                blurb => qq{},
+		ircserver => 'irc.example.org',
+              ],
+
+   channel2 => [ title => 'My Other Channel', 
+                url=> "http://example.org/mychannel2/home/",
+                blurb => qq{},
+		ircserver => 'irc.example.org',
+              ]
+);
+
+my(@channels);
+
+if(@ARGV) { 
+  if ($ARGV[0] eq '--all') {
+    $index_all=1;
+    shift(@ARGV);
+  }
+}
+
+if(@ARGV) { 
+  for my $chan (@ARGV) { 
+    if ($chan =~ /^(\w+)$/) {
+      push(@channels, $1);
+    } else {
+      warn "$0: Bad channel $chan\n";
+    }
+  }
+  die "$0: No good channels in @ARGV\n" unless @channels;
+} else {
+  for my $channel (@potential_channels) {
+    my $live_file="$home/$channel-live";
+    push(@channels, $channel) if -r $live_file || $always_live{$channel};
+  }
+}
+
+my $xslt_index=$xslt."/irc_index.xsl";
+my $xslt_main=$xslt."/irc_main.xsl";
+my $xslt_day=$xslt."/irc_day.xsl";
+
+
+for my $channel (@channels) {
+  my $dir=$logs."/".$channel;
+  chdir $dir or die "Cannot chdir $dir - $!\n";
+
+  my(@entries);
+  if($index_all) {
+    my(%seen);
+    opendir(DIR, $dir) or die "Cannot opendir $dir - $!\n";
+    while(my $entry=readdir(DIR)) {
+      next unless $entry =~ /^(((\d\d\d\d)-\d\d)-\d\d).rdf$/;
+      $seen{$1}=1;
+      $seen{$2}=1;
+      $seen{$3}=1;
+    }
+    closedir(DIR);
+
+    @entries=sort keys %seen;
+    push(@entries, 'index');
+    @entries=map {"$_.rdf"} @entries;
+
+  } else {
+    my(%seen);
+    my $now=time;
+    for my $time ($now, $now-86400) {
+      my(@t)=reverse ((gmtime($time))[3..5]);
+      $t[0]+=1900; $t[1]++;
+      my $date=sprintf("%04d-%02d-%02d", @t);
+      my $ym=sprintf("%04d-%02d", $t[0], $t[1]);
+      my $year=sprintf("%04d", $t[0]);
+      $seen{$date}=1;
+      $seen{$ym}=1;
+      $seen{$year}=1;
+    }
+    @entries=sort keys %seen;
+    push(@entries, 'index');
+
+    @entries=map {"$_.rdf"} @entries;
+  }
+
+  for my $entry (@entries) {
+    my $prefix;
+    my $sheet_file;
+    if ($entry=~ m%^(\d\d\d\d-\d\d-\d\d)\.rdf$%) {
+      $prefix=$1;
+      $sheet_file=$xslt_day;
+    } elsif ( $entry=~ m%^(\d\d\d\d(?:|-\d\d))\.rdf$%) {
+      $prefix=$1;
+      $sheet_file=$xslt_index;
+    } elsif ( $entry eq 'index.rdf') {
+      $prefix='index';
+      $sheet_file=$xslt_main;
+    }
+
+    next unless $prefix;
+
+    my $rdf_file="$dir/$prefix.rdf";
+    my $html_file="$dir/$prefix.html";
+
+
+    my(%params);
+
+    my $ch=$channel_params{$channel};
+    if($ch) {
+      %params=@$ch;
+    }
+
+    $params{'latest'}||='no';
+    $params{'blurb'}||='';
+
+    $params{'ircchannel'}=$channel;
+
+    # No RDF
+    next unless -r $rdf_file;
+
+    # warn "$html_file: html date: ",-M $html_file, " RDF date ", -M $rdf_file, " style date: ",-M $sheet_file, "\n";
+
+    # Up to date
+    next if -r $html_file && (-M $html_file < -M $rdf_file)
+                          && (-M $html_file < -M $sheet_file);
+
+    warn "$0: Rebuilding $html_file\n" if $index_all;
+
+    my $cmd="xsltproc";
+    for my $key (keys %params) {
+      $cmd.=" --param $key \"'".$params{$key}."'\"";
+    }
+    $cmd .= " file://$sheet_file";
+    $cmd .= " file://$rdf_file";
+    $cmd .= " | sed -e 's%/\>% /\>%g' > $html_file";
+    print "$channel $prefix\n"
+      if $debugging;
+    system $cmd;
+    chmod 0644, $html_file;
+
+  }
+}
+
