@@ -45,7 +45,7 @@ sub channel ($) {
 
 package main;
 
-sub xml_encode ($) {
+sub xml_escape ($) {
   my $string=shift;
   $string =~ s/\&/\&amp;/g;
   $string =~ s/</\&lt;/g;
