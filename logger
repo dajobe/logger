@@ -343,6 +343,10 @@ sub Channel_join($) {
   $conn->add_handler('topic', \&on_topic);
   $conn->add_handler('notice', \&on_notice);
 
+  # turn off CTCP ACTION warnings from Net::IRC::Connection.pm
+  # Not required for Net::IRC 0.71 or later
+  BEGIN { $SIG{'__WARN__'} = sub { warn $_[0] if not $_[0] =~ m/^ONE:/ } }
+
 }
 
 sub Channel_by_conn($) {
