@@ -129,6 +129,8 @@ sub main {
   $::Departing=0;
   $::Connecting=1;
 
+  umask 022;
+
   # FIXME - pid_file should not have channel in it, when logger
   # handles multiple channels
   my $pid_file=$::Log_Root.'/logger-'.$uri->channel.'.pid';
