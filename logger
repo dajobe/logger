@@ -845,7 +845,6 @@ sub command_for_me ($$$$$) {
   if($command=~ /^help/i) {
     my(@help)=(
       "The commands I know are:",
-      "  quit        - I will depart",
       "  silence     - Stop logging (also: stop, off, ...)",
       "  listen      - Start logging (also: start, on, ...)",
       "  grep [-i] [first-last|max] <perl regex>  - Search the logs",
@@ -856,6 +855,26 @@ sub command_for_me ($$$$$) {
       "for any lines starting [off].   All commands to me are logged.",
       "My public output is logged but these lines are not searchable.",
       "The public logs are at $::Log_URI",
+      "Do $::Nick, adminhelp for help on administrative commands",
+    );
+    my $do_sleep=0;
+    for my $output (@help) {
+      sleep(1) if $do_sleep;
+      $self->privmsg($dest_nick, $output);
+      $do_sleep=1;
+    }
+    return;
+  }
+
+  if($command =~ /^adminhelp/i) {
+    my(@help)=(
+      "Administrative commands are as follows:",
+      "  quit        - I will depart",
+      "  restart     - I will leave and rejoin channel",
+      "  debug       - Turn on debugging",
+      "  nodebug     - Turn off debugging",
+      "These commands must be sent with the logger PASSWORD like this:",
+      "/msg $::Nick password PASSWORD command'",
     );
     my $do_sleep=0;
     for my $output (@help) {
@@ -1150,10 +1169,10 @@ HTML (usually created from RDF via XSLT by some other program).
 Logger accepts a few commands that can be done publically with
   logger, COMMAND
 or privately with
-  /msg logger COMMAND>
+  /msg logger COMMAND
 
 The full list of commands can be found by the help command
-  /msg logger help>
+  /msg logger help
 
 Logger can be told to stop listening/recording to the chat, if for
 some reason this is required.  For individual messages this can be
@@ -1173,16 +1192,28 @@ The search results can be emailed to somebody by appending
 C<|MAIL-ADDRESS> to the end of the search line (you must have a
 space before the C<|>)
 
-Logger has some admin commands but these require the password C<:-)>
+Logger has some administrative commands that can be found from:
+  /msg logger adminhelp
 
-logger will attempt to reconnect when disconnected and if it dies,
-currently will be restarted automatically. It doesn't yet handle all
-network problems very gracefully.
+These require the startup password in order to use, for example this
+will make logger terminate:
+  /msg logger password PASSWORD quit
+
+logger will attempt to reconnect when disconnected but doesn't yet
+handle all network problems very gracefully.
+
+=head2 LICENSE
+
+GNU GPL version 2 or later - see http://www.gnu.org/copyleft/gpl.html
 
 =head2 AUTHOR
 
 Dave Beckett - http://purl.org/net/dajobe/, 
 Institute for Learning and Research Technology, http://ilrt.org/,
 University of Bristol.
+
+with lots of changes from
+Ralph Swick - http://www.w3.org/People/all#swick,
+W3C/MIT
 
 =cut
