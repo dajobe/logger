@@ -126,7 +126,7 @@ package main;
 
 sub main {
 
-  die "Usage: $::program password channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel,isnick,needpass"
+  die "Usage: $::program password channel-URI channel-title log-dir log-URI\n  where channel-URI is like irc://host[:port]/channel\n"
     unless @ARGV==5;
   my($password,$uri_string,$channel_title, $log_root, $log_uri_string)=@ARGV;
 
