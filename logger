@@ -761,6 +761,16 @@ sub command_for_me ($$$$$) {
 
   if($is_private && $valid_password) {
 
+    if($command=~ /^(?:quit|finish|terminate|die die die|exterminate|bye|excuse us)/i) {
+      $::Departing=1;
+      $self->me($event->to, 'is departing');
+      # Log who told me to quit
+      log_admin_event($self, $event, time, "Logger told to quit");
+      $self->quit;
+      unlink $::PID_File;
+      exit 0;
+    }
+  
     if($command eq 'restart') {
       $::Departing=1;
       $self->me($event->to, ' is departing');
@@ -782,16 +792,6 @@ sub command_for_me ($$$$$) {
       $self->debug(0);
       return;
     }
-  }
-  
-  if($command=~ /^(?:quit|finish|terminate|die die die|exterminate|bye|excuse us)/i) {
-    $::Departing=1;
-    $self->me($event->to, 'is departing');
-    # Log who told me to quit
-    log_admin_event($self, $event, time, "Logger told to quit");
-    $self->quit;
-    unlink $::PID_File;
-    exit 0;
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off|nolisten)/i) {
