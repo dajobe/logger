@@ -183,7 +183,7 @@ EOT
   }
 
   # Make a legal XML id from the time
-  my $ID="$time"; $ID =~ s/:/-/g;
+  my $ID="T$time"; $ID =~ s/:/-/g;
 
   # add a unique suffix if necessary
   if(length($Last_ID) != length($ID)) {
