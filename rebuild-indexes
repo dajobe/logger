@@ -24,7 +24,9 @@
 # 
 # See http://www.gnu.org/copyleft/gpl.html
 #
-# For documentation run perldoc on this file 'perldoc logger'
+# USAGE: rebuild-indexes log-dir log-URI
+# e.g.
+#  rebuild-indexes /path/to/logs/for/channel http://example.org/logs/channel/
 #
 
 use strict;
