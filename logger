@@ -279,7 +279,7 @@ sub Channel_new ($$$) {
   $self->{Listening}=0;
 
   # Track midnight rollover
-  $self->{hour}=0;
+  $self->{hour}= undef;
 
   # NET::IRC connection object
   $self->{CONN}=undef;
@@ -555,6 +555,15 @@ EOT
 }
 
 
+sub Channel_close_logs ($) {
+  my $self=shift;
+  for my $type ($self->{LogTypes}) {
+    $self->{FH}->{$type}->close;
+    $self->{FH}->{$type}=undef;
+  }
+}
+
+
 ######################################################################
 # Logging - methods on Net::IRC::Connection object
 
@@ -572,16 +581,15 @@ sub log_event ($$$;$) {
   my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
   my $date_time="$date $time";
 
+  my $hour=$tm[2];
   # if we're using dated logs and we passed midnight, start new logs
-  if ($channel->{LogName} && ($tm[2] < $channel->{hour})) {
-    for my $type ($channel->{LogTypes}) {
-      $channel->{FH}->{$type}->close;
-      $channel->{FH}->{$type}=undef;
-    }
+  if (!$channel->{LogName} &&
+      defined $channel->{hour} && ($hour < $channel->{hour})) {
+    Channel_close_logs($channel);
     Channel_open_logs($channel);
   }
 
-  $channel->{hour} = $tm[2];
+  $channel->{hour} = $hour;
 
 
   if (grep($_ eq 'txt', @{$channel->{LogTypes}})) {
@@ -957,10 +965,7 @@ sub command_for_me ($$$$$) {
   }
 
   if($command=~ /^(?:sync)/i) {
-    for my $type ($channel->{LogTypes}) {
-      $channel->{FH}->{$type}->close;
-      $channel->{FH}->{$type}=undef;
-    }
+    Channel_close_logs($channel);
     Channel_open_logs($channel);
     return;
   }
