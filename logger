@@ -154,7 +154,8 @@ sub on_msg {
   my($self,$event)=@_;
   my $nick = $event->nick;
   
-  log_event(time, "*$nick* asked me ".join(' ', $event->args));
+  my $arg = join(' ', $event->args);
+  command_for_me($self, $nick, $arg, 1);
 }
 
 
@@ -166,7 +167,7 @@ sub on_public {
   my $arg = join(' ', $event->args);
 
   if ($arg =~ /^$mynick,\s+(.*)$/) {
-    command_for_me($self, $nick, $1);
+    command_for_me($self, $nick, $1, 0);
   }
 
   log_event(time, "<$nick> $arg");
@@ -190,13 +191,20 @@ sub on_join {
   log_event(time, sprintf("%s (%s) has joined channel", $event->nick, $event->userhost));
 }
 
-sub command_for_me ($$$) {
-  my($self, $from_nick, $command)=@_;
+sub command_for_me ($$$$) {
+  my($self, $from_nick, $command, $is_private)=@_;
 
   $command=~s/^\s+//;
 
   my $output='';
 
+  if($is_private && $command eq 'restart') {
+    $::departing=1;
+    $conn->me($Channel, ' is departing');
+    $conn->quit;
+    exec('logger');
+  }
+  
   if($command=~ /^(?:quit|finish|terminate|die die die)/i) {
     $::departing=1;
     $conn->me($Channel, ' is departing');
@@ -242,13 +250,22 @@ sub command_for_me ($$$) {
       $output.=" Nothing found for '$search' :-(";
     } else {
       $output.=" Found ".scalar(@bits)." answers:\n";
-      $conn->notice($Channel, $output);
+      if($is_private) {
+	$conn->notice($from_nick, $output);
+      } else {
+	$conn->notice($Channel, $output);
+      }
       for(my $i=0; $i< @bits; $i++) {
 	if($i > $max) {
 	  $conn->notice($Channel, "Truncated after $max items\n");
 	  last;
 	}
-	$conn->notice($Channel, "$i: ".$bits[$i]."\n");
+	$output="$i: ".$bits[$i]."\n";
+	if($is_private) {
+	  $conn->notice($from_nick, $output);
+	} else {
+	  $conn->notice($Channel, $output);
+	}
       }
       return;
     }
@@ -256,7 +273,11 @@ sub command_for_me ($$$) {
     $output.="I don't understand that, $from_nick";
   }
 
-  $conn->notice($Channel, $output);
+  if($is_private) {
+    $conn->notice($from_nick, $output);
+  } else {
+    $conn->notice($Channel, $output);
+  }
 }
 
 
