@@ -107,10 +107,10 @@ $::rdf_suffix_length=undef;	# account for \n to \r\n expansion in stdio
     qr|(file://)([^] \)>"\'\n[\t\\]*)(.*)$|,
     qr|(gopher://)([^] \)>"\'\n[\t\\]*)(.*)$|,
     qr|(nntp://)([^] \)>"\'\n[\t\\]*)(.*)$|,
-    qr|(wais://)([^] \)>"\'\n[\t\\]*)(.*)$|,
+    qr|(wais://)([^] \)>"\'\n[\t\\]*)(.*)$|, # "
     qr|(telnet://)([^] \)>"\'\n[\t\\]*)(.*)$|,
     qr|(prospero://)([^] \)>"\'\n[\t\\]*)(.*)$|,
-    qr|(mailto:)([^] \)>"\'\n[\t\\]*)(.*)$|,
+    qr|(mailto:)([^] \)>"\'\n[\t\\]*)(.*)$|, # "
     );
 
 $::ActionDropped = 'dropped';
@@ -245,8 +245,10 @@ sub main {
 
   # replace '<server>' in $::Log_LocalPath and $::Log_URI
   my $server = $uri->host.$::PortSep.$uri->port;
-  $::Log_LocalPath =~ s/<server>/$server/;
-  $::Log_URI =~ s/<server>/$server/;
+  $::Log_LocalPath =~ s/<server>/$server/
+    if $::Log_LocalPath;
+  $::Log_URI =~ s/<server>/$server/
+    if $::Log_URI;
 
   if ($::Log_LocalPath) {
     die "$::program: log dir $::Log_LocalPath does not exist\n"
