@@ -1,4 +1,14 @@
 #!/usr/bin/perl -w
+#
+# IRC logger program for ILRT chat
+#
+# $Source$
+# $Id$
+#
+# (C) Copyright 2000 Dave Beckett, ILRT, University of Bristol
+# http://www.ilrt.bristol.ac.uk/people/cmdjb/
+#
+
 use Net::IRC;
 use File::Path;
 
@@ -11,6 +21,7 @@ my $Port='6667';
 
 my $Log_Root='/home/logger/chat-logs';
 
+my $Max_Results=3;
 
 ######################################################################
 %ENV=();
@@ -34,11 +45,17 @@ my $conn = $irc->newconn(Nick    => $Nick,
 			 LocalAddr => $host);
 
 
+$::listening=1;
+$::departing=0;
+
+
 ######################################################################
 # Logging
 
 sub log_event ($$) {
   my($t, $msg)=@_;
+
+  return if !$::listening;
 
   my $c=$Channel;
   $c=~ s/\W//g;
@@ -70,6 +87,26 @@ sub log_event ($$) {
 }
 
 
+sub get_log () {
+  my $c=$Channel;
+  $c=~ s/\W//g;
+  my $log_dir="$Log_Root/$Server:$Port/$c/";
+
+  my @tm = localtime(time);
+  $tm[5]+= 1900; $tm[4]++;
+  my $date_time = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+			  $tm[5], $tm[4], $tm[3],
+			  $tm[2], $tm[1], $tm[0]);
+  
+  my $log_file = sprintf("$log_dir/%04d-%02d.log", $tm[5], $tm[4]);
+  # Failed!
+  return () if !open(LOG, "$log_file");
+  my(@results)=map {chomp, $_} <LOG>;
+  close(LOG);
+  return(@results);
+}
+
+
 ######################################################################
 # Global events
 
@@ -78,6 +115,7 @@ sub on_connect {
   my ($self, $event) = @_;
   
   $self->join($Channel);
+  $conn->me(' is listening');
 }
 
 
@@ -98,6 +136,8 @@ sub on_disconnect {
   my ($self, $event) = @_;
   
   log_event(time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
+
+  return if $::departing;
 
   log_event(time, "Attempting to reconnect");
   $self->connect();
@@ -122,9 +162,13 @@ sub on_public {
   my ($self, $event) = @_;
   my @to = $event->to;
   my ($nick, $mynick) = ($event->nick, $self->nick);
-  my ($arg) = ($event->args);
+  my $arg = join(' ', $event->args);
 
-  log_event(time, "<$nick> ".join(' ',$event->args));
+  if ($arg =~ /^$mynick,\s+(.*)$/) {
+    command_for_me($self, $nick, $1);
+  }
+
+  log_event(time, "<$nick> $arg");
 }
 
 
@@ -145,6 +189,70 @@ sub on_join {
   log_event(time, sprintf("%s (%s) has joined channel", $event->nick, $event->userhost));
 }
 
+sub command_for_me ($$$) {
+  my($self, $from_nick, $command)=@_;
+
+  $command=~s/^\s+//;
+
+  my $output='';
+
+  if($command=~ /^(?:quit|terminate|die die die)/i) {
+    $::departing=1;
+    $conn->me($Channel, ' is departing');
+    $conn->quit;
+    exit 0;
+  }
+  
+  if($command=~ /^(?:be quiet|shut up|silence|stop|cease|desist)/i) {
+    if($::listening) {
+      $conn->me($Channel, ' is not listening');
+      $::listening=0;
+    }
+    return;
+  }
+  
+  if($command=~ /^(?:hello|listen|record|start|begin)/i) {
+    if(!$::listening) {
+      $conn->me($Channel, ' is listening');
+      $::listening=1;
+    }
+    return;
+  }
+
+  if(!$::listening) {
+    $output="I'm not listening. ";
+  } else {
+    $output="I'm listening. ";
+  }
+
+  if($command=~ /^help/i) {
+    $output.="I understand 'quit', 'silence', 'listen', 'grep REGEX'";
+  }
+  elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
+    my $search=$1;
+    # Only allow a few regexes
+    $search =~ s/[^a-z0-9A-Z\.+*]/./g;
+    my(@bits)=grep(/$search/, get_log());
+    if (!@bits) {
+      $output.=" Nothing found for '$search' :-(";
+    } else {
+      $output.=" Found ".scalar(@bits)." answers:\n";
+      $conn->notice($Channel, $output);
+      for(my $i=0; $i< @bits; $i++) {
+	if($i > $Max_Results) {
+	  $conn->notice($Channel, "Truncated\n");
+	  last;
+	}
+	$conn->notice($Channel, "$i: ".$bits[$i]."\n");
+      }
+      return;
+    }
+  } else {
+    $output.="I don't understand that, $from_nick";
+  }
+
+  $conn->notice($Channel, $output);
+}
 
 
 
