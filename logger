@@ -677,7 +677,10 @@ sub on_quit {
   my ($channel) = ($event->to)[0];
   my $nick=$event->nick;
   my $arg = join(' ', $event->args);
-  log_event($self, $event, time, "$nick has quit ($arg)");
+  my $msg="$nick has quit";
+
+  $msg.=" ($arg)" if $::LogUserHosts;
+  log_event($self, $event, time, $msg);
 }
 
 
@@ -897,6 +900,8 @@ sub command_for_me ($$$$$) {
 
     # Remove (?...) blocks since they can do evals
     $search =~ s/\(\?[^)]+\)//g;
+    # Remove backticks since they can run processes
+    $search =~ s/\`//g;
     # Remove variable references
     $search =~ s/\$//g;
     # Quote '/'s
