@@ -121,21 +121,21 @@ sub log_event ($$;$) {
   my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
   my $date_time="$date $time";
 
-  my $log_file = sprintf("$log_dir/%04d-%02d.log", $tm[5], $tm[4]);
+  my $log_file = "$log_dir/$date.txt";
+  my $rdf_log_file = "$log_dir/$date.rdf";
+
+  my $rdf_suffix="  </rdf:Seq>\n</rdf:Description>\n</rdf:RDF>\n";
+
 
   # Failed!
   if (!open(LOG, ">>$log_file")) {
     $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
     exit(0);
   }
-
   my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
   print LOG "$time $text_msg\n";
   close(LOG);
 
-  my $rdf_log_file = sprintf("$log_dir/%04d-%02d.rdf", $tm[5], $tm[4]);
-
-  my $rdf_suffix="  </rdf:Seq>\n</rdf:Description>\n</rdf:RDF>\n";
 
   if(!-r $rdf_log_file) {
     if (!open(RLOG, ">$rdf_log_file")) {
@@ -161,7 +161,7 @@ EOT
   }
 
   print RLOG <<"EOT";
-    <rdf:li>
+    <rdf:li rdf:parseType="Resource">
       <dc:date>${date}T$time</dc:date>
 EOT
   print RLOG qq{      <dc:description>}.xml_escape($msg).qq{</dc:description>\n};
@@ -191,6 +191,8 @@ sub get_logs () {
     my(@lines);
     while(<LOG>) {
       chomp;
+      # Ignore logger's own output
+      next if m%^\d\d:\d\d:\d\d <$Nick>%;
       push(@lines, $_) if length $_;
     };
     close(LOG);
