@@ -306,11 +306,11 @@ sub on_join {
 
   log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost), $user_nick);
 
-  my $listen=($::listening) ? "logging " : "not logging";
+  my $logging=($::listening) ? "logging" : "not logging";
 
   my(@intro)=(
    "Welcome to the RDF Interest Group IRC - see http://rdfig.xmlhack.com/",
-   "I'm currently $listen to http://ilrt.org/discovery/chatlogs/rdfig/"
+   "I'm currently $logging to http://ilrt.org/discovery/chatlogs/rdfig/"
   );
 
   my $do_sleep=0;
