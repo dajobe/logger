@@ -58,9 +58,9 @@ $::IRC_Name='Chat Logger';
 $::Max_Results=5;
 $::Max_Max_Results=20;
 
-$::LogName=undef;
 $::LogActionMsgs=1;
 $::LogUserHosts=0;
+$::OffTopic=1;        # [off] at start of line is not logged
 
 @::LogTypes=qw(rdf html txt);
 @::DefaultLogTypes=qw(rdf txt);
@@ -168,22 +168,29 @@ sub main {
   my $usage=<<"EOT";
 Usage: $::program [option...] password channel-URI channel-title log-dir log-URI
   where option is one or more of:
-   -noaction	    don't log /me messages
    -html	    write an XHTML log
-   -notext	    don't write a text log
-   -log <logfile>   (\".txt\", \".html\", and \".rdf\" will be appended)
+   -notext	    Do not write a text log
+   -log <logfile>   Write logs to logfile rather than the default
+                    of channel/YYYY-MM-DD
+                    (\".txt\", \".html\", and \".rdf\" will be appended)
    -nick <nick>     set the nick
-   -userhosts       log user\@host in /join messages
+
+   -noaction	    Do not log /me messages
+   -noofftopic      Do not ignore lines starting with [off]
+   -userhosts       Record user\@host in /join messages
+
   and channel-URI is like irc://host[:port]/channel
 EOT
 
   my(%do_log_types)=map {$_ => 1} @::DefaultLogTypes;
+  my $log_name=undef;
   die $usage unless GetOptions ('action!' => \$::LogActionMsgs,
 		       'html!'	 => \$do_log_types{'html'},
 		       'text!'	 => \$do_log_types{'txt'},
-		       'log=s'	 => \$::LogName,
+		       'log=s'	 => \$log_name,
 		       'nick=s'	 => \$::Nick,
 		       'userhost!' => \$::LogUserHosts,
+		       'offtopic!' => \$::OffTopic,
 		      ) && @ARGV==5;
 
   @::DefaultLogTypes=grep($do_log_types{$_}, @::LogTypes);
@@ -226,7 +233,7 @@ EOT
 
   $::IRC = new Net::IRC;
 
-  my $channel=&Channel_new($uri, $channel_title);
+  my $channel=&Channel_new($uri, $channel_title, $log_name);
 
   Channel_join($channel);
 
@@ -247,8 +254,8 @@ exit 0;
 
 @::Channels=();
 
-sub Channel_new ($$) {
-  my($uri,$title)=@_;
+sub Channel_new ($$$) {
+  my($uri,$title,$log_name)=@_;
 
   my $self={};
 
@@ -257,6 +264,10 @@ sub Channel_new ($$) {
 
   # irc:: URI
   $self->{URI}=$uri;
+
+  # a file prefix to log to (i.e. write log_name.rdf etc.) or undef
+  # to use default schema
+  $self->{LogName}=$log_name;
 
   # topic of channel
   $self->{Topic}='';
@@ -347,7 +358,7 @@ sub Channel_get_log_dir ($) {
 }
 
 
-# %% RRS: make this work for a specified LogName
+# %% RRS: make this work for a specified log name
 sub Channel_get_log_lines ($) {
   my $self=shift;
 
@@ -393,21 +404,21 @@ sub Channel_open_logs ($) {
 
   my(%log_files);
   
-  if (defined $::LogName) {
+  if (my $log_name=$self->{LogName}) {
     for my $type (@{$self->{LogTypes}}) {
-      $log_files{$type}="$::LogName.$type";
+      $log_files{$type}="$log_name.$type";
     }
   } else {
-      my $log_dir=Channel_get_log_dir($self);
-
-      mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
-      # Failed!
-      if (! -d $log_dir) {
-	$conn->privmsg("#$channel_name", "failed to create chat log dir, quitting");
-	unlink $::PID_File;
-	exit(0);
-      }
-
+    my $log_dir=Channel_get_log_dir($self);
+    
+    mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
+    # Failed!
+    if (! -d $log_dir) {
+      $conn->privmsg("#$channel_name", "failed to create chat log dir, quitting");
+      unlink $::PID_File;
+      exit(0);
+    }
+    
     for my $type (@{$self->{LogTypes}}) {
       $log_files{$type}="$log_dir/$date.$type";
     }
@@ -550,7 +561,7 @@ sub log_event ($$$;$) {
   my $date_time="$date $time";
 
   # if we're using dated logs and we passed midnight, start new logs
-  if (! defined $::LogName && ($tm[2] < $channel->{hour})) {
+  if ($channel->{LogName} && ($tm[2] < $channel->{hour})) {
     for my $type ($channel->{LogTypes}) {
       $channel->{FH}->{$type}->close;
       $channel->{FH}->{$type}=undef;
@@ -733,7 +744,7 @@ sub on_public {
   my $arg = join(' ', $event->args);
 
   # Private stuff
-  return if $arg =~ /^\[off\]/i;
+  return if ($::OffTopic && $arg =~ /^\[off\]/i);
 
   log_event($self, $event, time, $arg);
 
@@ -750,7 +761,8 @@ sub on_caction {
   my $arg = join(' ', $event->args);
 
   # Private stuff
-  return if (! $::LogActionMsgs) || $arg =~ /^\[off\]/i;
+  return if !$::LogActionMsgs ||
+            ($::OffTopic && $arg =~ /^\[off\]/i);
 
   log_event($self, $event, time, "* $nick $arg");
 }
@@ -773,7 +785,7 @@ sub on_notice {
   my $arg = join(' ', $event->args);
 
   # Private stuff
-  return if $arg =~ /^\[off\]/i;
+  return if ($::OffTopic && $arg =~ /^\[off\]/i);
 
   return if $::Connecting;
 
@@ -1220,13 +1232,15 @@ chat channels.  Call it with parameters above where
 
 and options are:
 
-  -noaction      Don't log /me messages
   -html          Write an XHTML log as well as text and RDF.
   -log LOGFILE   Write logs to LOGFILE rather than the default
                  of CHANNEL/YYYY-MM-DD (".txt", ".html", and ".rdf"
                  will be appended)
   -nick NICK     Use IRC nick NICK
-  -userhosts     Log user@host from /join messages
+
+  -noaction      Do not log /me messages
+  -noofftopic    Do not ignore lines starting with [off]
+  -userhosts     Record user@host from /join messages
 
 =head1 DESCRIPTION
 
@@ -1250,7 +1264,8 @@ for longer conversations, tell logger to stop listening with:
 and recording again with 
   logger, on
 (there are other synonyms).  The on/off messages are logged, as well as
-all public commands to logger.
+all public commands to logger.  This feature can be turned off
+with -noofftopic
 
 Logger also can perform searches over the logs using the
 C<find> or C<grep> command (or ending anything to logger
