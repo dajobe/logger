@@ -267,18 +267,27 @@ sub command_for_me ($$$$) {
   }
 
   if($command=~ /^help/i) {
-    $output.=q{I understand 'quit', 'silence', 'listen', 'grep [-i] [max] <perl regex>'};
+    $output.=q{I understand 'quit', 'silence', 'listen', 'grep [-i] [first-last|last] <perl regex>'};
   }
   elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
     my $flags='';
-    my $max=$Max_Results;
+    my($first,$last)=(0,$Max_Results);
 
     if($search=~ s/^-i\s+//) {
       $flags='(?i)';
     }
-    if($search=~ s/^(\d+)\s+(?:things about\s+|)//) {
-      $max=$1;
+    if($search=~ s/^(\d+|\d+-\d+)\s+(?:things about\s+|)//) {
+      my $arg=$1;
+      if($arg=~ m%^(\d+)-(\d+)$%) {
+	($first,$last)=($1,$2);
+	# Reset if stupid things done
+	if($first > $last) {
+	  ($first,$last)=(0,$Max_Results);
+	}
+      } else {
+        $last=$arg;
+      }
     }
 
     my $orig_search=$search;
@@ -308,13 +317,14 @@ sub command_for_me ($$$$) {
     } else {
       my $pl=(@results != 1) ? 's' : '';
       $output.=" I found ".scalar(@results)." answer$pl";
-      if(@results > $max) {
-	$output.=" (showing first $max)";
+      $last=@results if $last > @results;
+      if($first !=0 || $last != @results) {
+	$output.=" (showing $first...$last)";
       }
       $output.="\n";
       $conn->notice($dest_nick, $output);
 
-      for(my $i=0; ($i< @results) && ($i < $max); $i++) {
+      for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	$output="$i) ".$results[$i]."\n";
 	$conn->notice($dest_nick, $output);
       }
