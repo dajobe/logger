@@ -1405,7 +1405,6 @@ sub command_for_me ($$$$$) {
       " excuse us   - Leave the channel (also: bye)",
       " grep [-i] [first-last|max] <perl regex>  - Search the logs",
       "   e.g. grep foo, grep 5 bar, grep -i things [case independent]",
-      "   append |mail EMAIL-ADDRESS to email results instead of printing",
       " bookmark    - Give the URI of the current log");
    @help=(@help,
       " show action items - give a list of ACTION: entries",
@@ -1465,12 +1464,6 @@ sub command_for_me ($$$$$) {
       $flags='(?i)';
     }
 
-    my $mail='';
-    if($search =~ s%\|mail\s+(.+)$%%) {
-      $mail=$1;
-      $search =~ s%\s+$%%;
-    }
-
     if($search=~ s/^(\d+|\d+-\d+)\s+(?:things about\s+|)//) {
       my $arg=$1;
       $arg=1 if $arg eq "0"; # fix previous breakage
@@ -1513,32 +1506,6 @@ sub command_for_me ($$$$$) {
     } elsif (!@results) {
       $output.=qq{ Sorry, nothing found for '$orig_search'};
       $output.=qq{ (internally: "$search")} if $orig_search ne $search;
-    } elsif ($mail) {
-      my $userhost=$event->userhost;
-
-      my $pl=(@results != 1) ? 's' : '';
-      my $count=scalar(@results);
-      if(open(PIPE,"|/usr/lib/sendmail -t")) {
-	my $title=$channel->{Title};
-	print PIPE "From: $::IRC_Name\n";
-	print PIPE "To: $mail\n";
-	print PIPE "Subject: Results of search '$orig_search' on $title\n";
-	print PIPE "\n";
-	print PIPE "This email is the result of a search by\n";
-        print PIPE "nick $from_nick ($userhost) on the\n";
-	print PIPE "$title\n";
-	print PIPE 'This channel is logged in '
-	    .($self->{LogURIPrefix} ? $self->{LogURIPrefix} : $::Log_URI)
-	    ."\n";
-	print PIPE "\n";
-	print PIPE "$count result$pl follow:\n";
-	print PIPE join("\n", reverse @results);
-	close(PIPE);
-	$output.=qq{ Mailed $count result$pl to $mail};
-	log_admin_event($self, $event, time, "Search results from '$orig_search' mailed to $mail");
-      } else {
-	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
-      }
     } else {
       my $size=scalar(@results);
       my $pl=($size != 1) ? 's' : '';
@@ -2238,10 +2205,8 @@ Logger also can perform searches over the logs using the
 C<find> or C<grep> command (or ending anything to logger
 with C<?>). It returns matches to the given perl regex in
 recent output, most recent first. See the help text for more details.
-The search results can be emailed to somebody by appending
-C<|MAIL-ADDRESS> to the end of the search line (you must have a
-space before the C<|>).  Selected results can be returned by
-prefixing the command with a count or a range like this:
+Selected results can be returned by prefixing the command with a
+count or a range like this:
   /msg logger grep 5 things
   /msg logger grep 10-20 things
 
