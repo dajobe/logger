@@ -27,7 +27,7 @@ my $do_welcome=0;
 #my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
 #my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
 
-my $Last_ID='';
+$Last_ID='';
 
 %ENV=();
 $ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
@@ -190,9 +190,8 @@ EOT
     # If last ID was in same second, need to start from next
     # ID HH-MM-SS-X and increment X
     # otherwise, new ID is OK
-    if ($Last_ID =~ /^$ID/) {
-      $ID=$Last_ID;
-      $ID++; # magical increment
+    if ($Last_ID =~ /^$ID-(\d+)$/) {
+      $ID.=$1+1;
     }
   } elsif($ID eq $Last_ID) {
     # Else if was same as last ID, must be first duplicate of this
