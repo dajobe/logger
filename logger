@@ -9,24 +9,72 @@
 # http://www.ilrt.bristol.ac.uk/people/cmdjb/
 #
 
+use URI;
+
 use Net::IRC;
 use File::Path;
-
-my $irc = new Net::IRC;
+use File::Basename;
 
 my $Nick='logger';
-my $Channel='#ilrt';
-my $Server='my.desire.org';
-my $Port='6667';
 my $IRC_Name='Chat Logger';
-
-my $Log_Root='/home/logger/chat-logs';
-
 my $Max_Results=5;
+my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
-######################################################################
 %ENV=();
 $ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
+
+######################################################################
+package URI::irc;
+
+# http://www.w3.org/Addressing/draft-mirashi-url-irc-01.txt
+# irc:[ //[ <host>[:<port>] ]/[<target>] [,needpass] ]
+
+require URI::_server;
+
+@ISA=qw(URI::_server);
+
+sub default_port { 6667 }
+
+sub channel ($) {
+  my $path=shift->path;
+  if($path && $path =~ m%^/([^/]+)%) {
+    return $1;
+  }
+  undef;
+}
+
+package main;
+
+sub xml_encode ($) {
+  my $string=shift;
+  $string =~ s/\&/\&amp;/g;
+  $string =~ s/</\&lt;/g;
+  $string =~ s/>/\&gt;/g;
+  $string;
+}
+
+######################################################################
+
+$::program=basename $0;
+
+$::ARGS="$0 @ARGV";
+
+die "Usage: $program irc://host[:port]/channel,isnick,needpass log-dir\n"
+  unless @ARGV==2;
+my($uri_string,$log_root)=@ARGV;
+
+
+my $uri;
+eval '$uri=new URI $uri_string';
+die "$program: '$uri_string' does not look like an IRC URI\n" if ($@ || !$uri);
+
+die "$program: log dir $log_root does not exist\n" unless -d $log_root;
+
+my $Channel='#'.$uri->channel;
+my $Server=$uri->host;
+my $Port=$uri->port;
+my $Log_Root=$log_root;
+
 
 my $host;
 if(`uname -n` =~ /^([-\w.]+)$/) {
@@ -36,15 +84,13 @@ if(`uname -n` =~ /^([-\w.]+)$/) {
 }
 
 
-my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
-
-
+my $irc = new Net::IRC;
 my $conn = $irc->newconn(Nick    => $Nick,
 			 Server  => $Server,
 			 Port    => $Port,
 			 Ircname => $IRC_Name,
 			 LocalAddr => $host);
-
+die "$program: Cannot create connection to $uri_string\n" unless $conn;
 
 $::listening=1;
 $::departing=0;
@@ -53,8 +99,8 @@ $::departing=0;
 ######################################################################
 # Logging
 
-sub log_event ($$) {
-  my($t, $msg)=@_;
+sub log_event ($$;$) {
+  my($t, $msg, $nick)=@_;
 
   return if !$::listening;
 
@@ -69,22 +115,61 @@ sub log_event ($$) {
     exit(0);
   }
 
-  my @tm = localtime($t);
+  my @tm = gmtime($t);
   $tm[5]+= 1900; $tm[4]++;
-  my $date_time = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
-			  $tm[5], $tm[4], $tm[3],
-			  $tm[2], $tm[1], $tm[0]);
-  
+  my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
+  my $time = sprintf("%02d:%02d:%02d", $tm[2], $tm[1], $tm[0]);
+  my $date_time="$date $time";
+
   my $log_file = sprintf("$log_dir/%04d-%02d.log", $tm[5], $tm[4]);
-  
+
   # Failed!
   if (!open(LOG, ">>$log_file")) {
     $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
     exit(0);
   }
-  
-  print LOG "$date_time $msg\n";
+
+  my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
+  print LOG "$time $text_msg\n";
   close(LOG);
+
+  my $rdf_log_file = sprintf("$log_dir/%04d-%02d.rdf", $tm[5], $tm[4]);
+
+  my $rdf_suffix="  </rdf:Seq>\n</rdf:Description>\n</rdf:RDF>\n";
+
+  if(!-r $rdf_log_file) {
+    if (!open(RLOG, ">$rdf_log_file")) {
+      $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+      exit(0);
+    }
+
+    print RLOG <<"EOT";
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/">
+<rdf:Description rdf:about="$uri_string">
+  <rdf:Seq>
+EOT
+  } else {
+    if (!open(RLOG, "+<$rdf_log_file")) {
+      $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+      exit(0);
+    }
+
+    # seek back
+    seek(RLOG, -length($rdf_suffix), 2) # 2= SEEK_END
+  }
+
+  print RLOG <<"EOT";
+    <rdf:li>
+      <dc:date>${date}T$time</dc:date>
+EOT
+  print RLOG qq{      <dc:description>}.xml_escape($msg).qq{</dc:description>\n};
+  print RLOG qq{      <foaf:nick>$nick</foaf:nick>\n} if $nick;
+  print RLOG qq{    </rdf:li>\n};
+  print RLOG $rdf_suffix;
+
+  close(RLOG);
 }
 
 
@@ -151,6 +236,7 @@ sub on_disconnect {
   return if $::departing;
 
   log_event(time, "Attempting to reconnect");
+  sleep(1);
   $self->connect();
 }
 
@@ -183,7 +269,20 @@ sub on_public {
     command_for_me($self, $nick, $1, 0);
   }
 
-  log_event(time, "<$nick> $arg");
+  log_event(time, $arg, $nick);
+}
+
+
+# What to do when we receive /me (and other stuff??)
+sub on_caction {
+  my ($self, $event) = @_;
+  my $nick = $event->nick;
+  my $arg = join(' ', $event->args);
+
+  # Private stuff
+  return if $arg =~ /^\[off\]/i;
+
+  log_event(time, "$nick $arg", $nick);
 }
 
 
@@ -192,7 +291,7 @@ sub on_part {
   my ($self, $event) = @_;
   my ($channel) = ($event->to)[0];
   
-  log_event(time, sprintf("%s has left channel", $event->nick));
+  log_event(time, "left channel", $event->nick);
 }
 
 
@@ -202,7 +301,7 @@ sub on_join {
   my ($channel) = ($event->to)[0];
   my $user_nick=$event->nick;
 
-  log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost));
+  log_event(time, sprintf("%s (%s) has joined channel", $user_nick, $event->userhost), $user_nick);
 
   my $output="Hello $user_nick, I may be recording you.  At present ";
   if(!$::listening) {
@@ -229,10 +328,10 @@ sub command_for_me ($$$$) {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
-    exec('/home/logger/logger');
+    exec $ARGS;
   }
   
-  if($command=~ /^(?:quit|finish|terminate|die die die)/i) {
+  if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
     $::departing=1;
     $conn->me($Channel, ' is departing');
     $conn->quit;
@@ -243,6 +342,8 @@ sub command_for_me ($$$$) {
     if($::listening) {
       $conn->me($Channel, ' is not listening');
       $::listening=0;
+    } else {
+      $conn->me($Channel, ' is already not listening');
     }
     return;
   }
@@ -251,6 +352,8 @@ sub command_for_me ($$$$) {
     if(!$::listening) {
       $conn->me($Channel, ' is listening');
       $::listening=1;
+    } else {
+      $conn->me($Channel, ' is already listening');
     }
     return;
   }
@@ -267,7 +370,7 @@ sub command_for_me ($$$$) {
   }
 
   if($command=~ /^help/i) {
-    $output.=q{I understand 'quit', 'silence', 'listen', 'grep [-i] [first-last|last] <perl regex>'};
+    $output.=q{I understand 'quit', 'silence', 'listen', 'grep [-i] [first-last|last] <perl regex>.  I also respond to private messages.'};
   }
   elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
@@ -321,12 +424,15 @@ sub command_for_me ($$$$) {
       if($first !=0 || $last != @results) {
 	$output.=" (showing $first...$last)";
       }
-      $output.="\n";
       $conn->notice($dest_nick, $output);
+      log_event(time, $output, $Nick) unless $is_private;
 
+      sleep(1);
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
-	$output="$i) ".$results[$i]."\n";
+	$output="$i) ".$results[$i];
 	$conn->notice($dest_nick, $output);
+	log_event(time, $output, $Nick) unless $is_private;
+	sleep(1);
       }
       return;
     }
@@ -335,6 +441,7 @@ sub command_for_me ($$$$) {
   }
 
   $conn->notice($dest_nick, $output);
+  log_event(time, $output, $Nick) unless $is_private;
 }
 
 
@@ -350,6 +457,11 @@ $conn->add_handler('public', \&on_public);
 $conn->add_handler('part', \&on_part);
 $conn->add_handler('join', \&on_join);
 $conn->add_handler('kick', \&on_disconnect);
+$conn->add_handler('caction', \&on_caction);
 
 
 $irc->start;
+
+
+exit 0;
+
