@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# IRC logger program for ILRT chat
+# IRC chat logger
 #
 # $Source$
 # $Id$
@@ -18,6 +18,7 @@ my $Nick='logger';
 my $Channel='#ilrt';
 my $Server='my.desire.org';
 my $Port='6667';
+my $IRC_Name='Chat Logger';
 
 my $Log_Root='/home/logger/chat-logs';
 
@@ -39,9 +40,9 @@ my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
 
 my $conn = $irc->newconn(Nick    => $Nick,
-			 Server  => 'my.desire.org',
-			 Port    =>  6667,
-			 Ircname => 'Chat Logger',
+			 Server  => $Server,
+			 Port    => $Port,
+			 Ircname => $IRC_Name,
 			 LocalAddr => $host);
 
 
@@ -132,7 +133,7 @@ sub on_connect {
 # Prints the names of people in a channel when we enter.
 sub on_names {
   my ($self, $event) = @_;
-  my (@list, $channel) = ($event->args);    # eat yer heart out, mjd!
+  my (@list, $channel) = ($event->args);
   
   # splice() only works on real arrays. Sigh.
   ($channel, @list) = splice @list, 2;
