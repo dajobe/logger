@@ -784,7 +784,7 @@ sub on_public {
 
   log_event($self, $event, time, $arg);
 
-  if ($arg =~ /^$mynick,\s+(.*)$/i) {
+  if ($arg =~ /^$mynick[,:]\s*(.*)$/i) {
     command_for_me($self, $event, $to[0], $1, 0);
   }
 }
