@@ -433,9 +433,9 @@ sub command_for_me ($$$$) {
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off)/i) {
     if($::listening) {
       $conn->me($Channel, 'is not logging');
-      $::listening=0;
-      # Log who turned me off
+      # Log who turned me off BEFORE turning off logging
       log_event(time, $event, "Logging turned off");
+      $::listening=0;
     } else {
       $conn->me($Channel, 'is already not logging');
     }
