@@ -184,7 +184,7 @@ sub get_logs () {
   my(@results)=();
   # Newest files first
   for my $file (reverse sort readdir(DIR)) {
-    next unless $file =~ /^\d\d\d\d-\d\d.log/;
+    next unless $file =~ /^\d\d\d\d-\d\d-\d\d.txt/;
     open(LOG, "$log_dir/$file") or next;
     
     # Append to list, reverse date sorted list - i.e. older entries at end 
