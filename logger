@@ -379,7 +379,8 @@ sub on_join {
 
   my(@intro)=(
    "Welcome to the $Channel_Title",
-   "I'm currently $logging to $Log_URI"
+   "I'm currently $logging to $Log_URI",
+   "Do /msg $Nick help for more"
   );
 
   my $do_sleep=0;
@@ -429,7 +430,7 @@ sub command_for_me ($$$$) {
     exit 0;
   }
   
-  if($command=~ /^(?:be quiet|shut up|silence|sshush|stop)/i) {
+  if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off)/i) {
     if($::listening) {
       $conn->me($Channel, 'is not logging');
       $::listening=0;
@@ -441,7 +442,7 @@ sub command_for_me ($$$$) {
     return;
   }
   
-  if($command=~ /^(?:hello|log|listen|record|start|begin)/i) {
+  if($command=~ /^(?:hello|log|listen|record|start|begin|on)/i) {
     if(!$::listening) {
       $conn->me($Channel, 'is logging');
       $::listening=1;
@@ -466,10 +467,17 @@ sub command_for_me ($$$$) {
 
   if($command=~ /^help/i) {
     my(@help)=(
-      "I understand: 'quit', 'silence', 'listen'",
-      "'grep [-i] [first-last|max] <perl regex>.",
-      "and also respond to private messages privately.",
-      "Logs are written to $Log_URI"
+      "The commands I know are:",
+      "  quit        - I will depart",
+      "  silence     - Stop logging (also: stop, off, ...)",
+      "  listen      - Start logging (also: start, on, ...)",
+      "  grep [-i] [first-last|max] <perl regex>  - Search the logs",
+      "    e.g. grep foo, grep 5 bar, grep -i things [case independent]",
+      "I respond to '$Nick, command' in public and '/msg $Nick command' in private",
+      "Logging Policy: All public output is logged if I am listening except",
+      "for any lines starting [off].   All commands to me are logged.",
+      "My public output is logged but these lines are not searchable.",
+      "The public logs are at $Log_URI",
     );
     my $do_sleep=0;
     for my $output (@help) {
@@ -544,7 +552,7 @@ sub command_for_me ($$$$) {
       return;
     }
   } else {
-    $output.="I don't understand that, $from_nick";
+    $output.="I don't understand that, $from_nick.  Try /msg $Nick help";
   }
 
   $conn->notice($dest_nick, $output);
