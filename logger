@@ -54,6 +54,12 @@ $::Password='';
 # Print welcome message?
 $::Do_Welcome=0;
 
+# True if leaving (so don't reconnect)
+$::Departing=0;
+
+# True if connecting (don't log server notices)
+$::Connecting=0;
+
 
 # Global Variables that should be per-Channel
 # title
@@ -73,11 +79,6 @@ $::Channel_Last_ID='';
 # True if logging
 $::Channel_Listening=0;
 
-# True if leaving (so don't reconnect)
-$::Channel_Departing=0;
-
-# True if connecting (don't log server notices)
-$::Channel_Connecting=0;
 
 
 
@@ -125,6 +126,8 @@ sub main {
   $::Log_Root=$log_root;
   $::Log_URI=$log_uri_string;
   $::Do_Welcome=0;
+  $::Departing=0;
+  $::Connecting=1;
 
   # FIXME - pid_file should not have channel in it, when logger
   # handles multiple channels
@@ -303,6 +306,7 @@ sub on_connect {
   $self->me($channel, 'is logging');
 }
 
+
 # What to do when logger's nick is already used
 sub on_nicknameinuse {
   my ($self, $event) = @_;
@@ -326,7 +330,7 @@ sub on_names {
   
   log_event($self, $event, time, "Users on $channel: @list");
 
-  $::Channel_Connecting=0;
+  $::Connecting=0;
 }
 
 
@@ -336,7 +340,7 @@ sub on_disconnect {
   
   log_event($self, $event, time, "Disconnected from ". $event->from(). " (". ($event->args())[0]. ")");
 
-  return if $::Channel_Departing;
+  return if $::Departing;
 
   log_event($self, $event, time, "Attempting to reconnect");
   exit 0;
@@ -410,7 +414,7 @@ sub on_notice {
   # Private stuff
   return if $arg =~ /^\[off\]/i;
 
-  return if $::Channel_Connecting;
+  return if $::Connecting;
 
   log_event($self, $event, time, $arg);
 }
@@ -468,7 +472,7 @@ sub on_join {
   my(@intro)=(
    "Welcome to the $::Channel_Title",
    "I'm currently $logging to $::Log_URI",
-   "For extensive help do: /msg $:;Nick help"
+   "For extensive help do: /msg $::Nick help"
   );
 
   my $do_sleep=0;
@@ -503,11 +507,11 @@ sub command_for_me ($$$$$) {
   if($is_private && $valid_password) {
 
     if($command eq 'restart') {
-      $::Channel_Departing=1;
+      $::Departing=1;
       $self->me($event->to, ' is departing');
       $self->quit;
       sleep(1);
-      $::Channel_Connecting=1;
+      $::Connecting=1;
       $self->connect();
       return;
     }
@@ -526,7 +530,7 @@ sub command_for_me ($$$$$) {
   }
   
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
-    $::Channel_Departing=1;
+    $::Departing=1;
     $self->me($event->to, 'is departing');
     # Log who told me to quit
     log_event($self, $event, time, "Logger told to quit");
@@ -717,15 +721,11 @@ sub join_channel($$) {
   $::Config{$channel}->{URI}=$uri;
   $::Config{$channel}->{Title}=$title;
   $::Config{$channel}->{Listening}=1;
-  $::Config{$channel}->{Departing}=0;
-  $::Config{$channel}->{Connecting}=1;
 
   # Set globals that should be per-channel
   $::Channel_URI=$uri;
   $::Channel_Title=$title;
   $::Channel_Listening=1;
-  $::Channel_Departing=0;
-  $::Channel_Connecting=1;
 
   my $user_name=$uri->channel."-logger";
 
