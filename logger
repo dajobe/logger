@@ -9,11 +9,16 @@
 # http://www.ilrt.bristol.ac.uk/people/cmdjb/
 #
 
-use URI;
-
-use Net::IRC;
+# Come with Perl
 use File::Path;
 use File::Basename;
+
+use Sys::Hostname;
+
+# CPAN
+use URI;
+use Net::IRC;
+
 
 my $Nick='logger';
 my $IRC_Name='Chat Logger';
@@ -87,13 +92,8 @@ my $Log_URI=$log_uri_string;
 my $Channel_Title=$channel_title;
 my $Topic='';
 my $User_Name=$uri->channel."-logger";
+my $Host=hostname || 'unknown';
 
-my $host;
-if(`uname -n` =~ /^([-\w.]+)$/) {
-  $host=$1;
-} else {
-  $host='unknown';
-}
 
 my $pid_file="$Log_Root/logger-".$uri->channel.".pid";
 open(PID,">$pid_file");
@@ -107,12 +107,39 @@ my $conn = $irc->newconn(Nick    => $Nick,
 			 Port    => $Port,
 			 Ircname => $IRC_Name,
 			 Username => $User_Name,
-			 LocalAddr => $host);
+			 LocalAddr => $Host);
 die "$program: Cannot create connection to $uri_string\n" unless $conn;
 
 $::listening=1;
 $::departing=0;
 $::connecting=1;
+
+
+
+
+# Install handlers
+# On 'end of MOTD' event, join ilrt channel
+$conn->add_global_handler(376, \&on_connect);
+$conn->add_global_handler(353, \&on_names);
+$conn->add_global_handler('disconnect', \&on_disconnect);
+
+$conn->add_handler('msg', \&on_msg);
+$conn->add_handler('public', \&on_public);
+$conn->add_handler('part', \&on_part);
+$conn->add_handler('join', \&on_join);
+$conn->add_handler('kick', \&on_disconnect);
+$conn->add_handler('caction', \&on_caction);
+$conn->add_handler('quit', \&on_quit);
+$conn->add_handler('nick', \&on_nick);
+$conn->add_handler('nicknameinuse', \&on_nicknameinuse);
+$conn->add_handler('topic', \&on_topic);
+$conn->add_handler('notice', \&on_notice);
+
+
+# Never returns
+$irc->start;
+
+exit 0;
 
 
 ######################################################################
@@ -131,7 +158,7 @@ sub log_event ($$$;$) {
   mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
   # Failed!
   if (! -d $log_dir) {
-    $conn->privmsg($Channel, "failed to create chat log dir, quitting");
+    $self->privmsg($Channel, "failed to create chat log dir, quitting");
     exit(0);
   }
 
@@ -149,7 +176,7 @@ sub log_event ($$$;$) {
 
   # Failed!
   if (!open(LOG, ">>$log_file")) {
-    $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+    $self->privmsg($Channel, "failed to append to log file, quitting - $!");
     exit(0);
   }
   my $text_msg=$nick ? qq{<$nick> $msg} : $msg;
@@ -159,7 +186,7 @@ sub log_event ($$$;$) {
 
   if(!-r $rdf_log_file) {
     if (!open(RLOG, ">$rdf_log_file")) {
-      $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+      $self->privmsg($Channel, "failed to append to log file, quitting - $!");
       exit(0);
     }
 
@@ -175,7 +202,7 @@ sub log_event ($$$;$) {
 EOT
   } else {
     if (!open(RLOG, "+<$rdf_log_file")) {
-      $conn->privmsg($Channel, "failed to append to log file, quitting - $!");
+      $self->privmsg($Channel, "failed to append to log file, quitting - $!");
       exit(0);
     }
 
@@ -257,7 +284,7 @@ sub on_connect {
   
   $self->join($Channel);
   $::listening=1;
-  $conn->me($Channel, 'is logging');
+  $self->me($Channel, 'is logging');
 }
 
 # What to do when logger's nick is already used
@@ -269,7 +296,7 @@ sub on_nicknameinuse {
   } else {
     $Nick++; # magical increment
   }
-  $conn->nick($Nick);
+  $self->nick($Nick);
 }
 
 
@@ -430,7 +457,7 @@ sub on_join {
   my $do_sleep=0;
   for my $output (@intro) {
    sleep(1) if $do_sleep;
-   $conn->privmsg($event->nick, $output);
+   $self->privmsg($event->nick, $output);
    $do_sleep=1;
   }
 }
@@ -455,8 +482,8 @@ sub command_for_me ($$$$) {
 
   if($is_private && $valid_password && $command eq 'restart') {
     $::departing=1;
-    $conn->me($Channel, ' is departing');
-    $conn->quit;
+    $self->me($Channel, ' is departing');
+    $self->quit;
     sleep(1);
     $::connecting=1;
     $self->connect();
@@ -464,46 +491,46 @@ sub command_for_me ($$$$) {
   }
   
   if($is_private && $valid_password && $command eq 'debug') {
-    $conn->privmsg($dest_nick, "Debugging is on");
-    $conn->debug(1);
+    $self->privmsg($dest_nick, "Debugging is on");
+    $self->debug(1);
     return;
   }
   
   if($is_private && $valid_password && $command eq 'nodebug') {
-    $conn->privmsg($dest_nick, "Debugging is off");
-    $conn->debug(0);
+    $self->privmsg($dest_nick, "Debugging is off");
+    $self->debug(0);
     return;
   }
   
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
     $::departing=1;
-    $conn->me($Channel, 'is departing');
+    $self->me($Channel, 'is departing');
     # Log who told me to quit
     log_event($self, time, $event, "Logger told to quit");
-    $conn->quit;
+    $self->quit;
     exit 0;
   }
   
   if($command=~ /^(?:be quiet|shut up|silence|sshush|stop|off)/i) {
     if($::listening) {
-      $conn->me($Channel, 'is not logging');
+      $self->me($Channel, 'is not logging');
       # Log who turned me off BEFORE turning off logging
       log_event($self, time, $event, "Logging turned off");
       $::listening=0;
     } else {
-      $conn->me($Channel, 'is already not logging');
+      $self->me($Channel, 'is already not logging');
     }
     return;
   }
   
   if($command=~ /^(?:hello|log|listen|record|start|begin|on)/i) {
     if(!$::listening) {
-      $conn->me($Channel, 'is logging');
+      $self->me($Channel, 'is logging');
       $::listening=1;
       # Log who turned me on
       log_event($self, time, $event, "Logging turned on");
     } else {
-      $conn->me($Channel, 'is already logging');
+      $self->me($Channel, 'is already logging');
     }
     return;
   }
@@ -537,7 +564,7 @@ sub command_for_me ($$$$) {
     my $do_sleep=0;
     for my $output (@help) {
       sleep(1) if $do_sleep;
-      $conn->privmsg($dest_nick, $output);
+      $self->privmsg($dest_nick, $output);
       $do_sleep=1;
     }
     return;
@@ -625,14 +652,14 @@ sub command_for_me ($$$$) {
       if($first !=0 || $last != @results) {
 	$output.=" (showing $first...$last)";
       }
-      $conn->privmsg($dest_nick, $output);
+      $self->privmsg($dest_nick, $output);
       log_event($self, time, $event, $output) unless $is_private;
 
       my $count=0;
       for(my $i=$first; ($i< @results) && ($i <= $last); $i++) {
 	sleep(1);
 	$output="$i) ".$results[$i];
-	$conn->privmsg($dest_nick, $output);
+	$self->privmsg($dest_nick, $output);
 	log_event($self, time, $event, $output) unless $is_private;
 	$count++;
 	last if $count > $Max_Max_Results;
@@ -643,32 +670,6 @@ sub command_for_me ($$$$) {
     $output.="I don't understand '$command', $from_nick.  Try /msg $Nick help";
   }
 
-  $conn->privmsg($dest_nick, $output);
+  $self->privmsg($dest_nick, $output);
   log_event($self, time, $event, $output) unless $is_private;
 }
-
-
-
-# Install handlers
-# On 'end of MOTD' event, join ilrt channel
-$conn->add_global_handler(376, \&on_connect);
-$conn->add_global_handler(353, \&on_names);
-$conn->add_global_handler('disconnect', \&on_disconnect);
-
-$conn->add_handler('msg', \&on_msg);
-$conn->add_handler('public', \&on_public);
-$conn->add_handler('part', \&on_part);
-$conn->add_handler('join', \&on_join);
-$conn->add_handler('kick', \&on_disconnect);
-$conn->add_handler('caction', \&on_caction);
-$conn->add_handler('quit', \&on_quit);
-$conn->add_handler('nick', \&on_nick);
-$conn->add_handler('nicknameinuse', \&on_nicknameinuse);
-$conn->add_handler('topic', \&on_topic);
-$conn->add_handler('notice', \&on_notice);
-
-
-$irc->start;
-
-
-exit 0;
