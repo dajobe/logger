@@ -55,7 +55,7 @@ sub xml_escape ($) {
   $string =~ s/\&/\&amp;/g;
   $string =~ s/</\&lt;/g;
   $string =~ s/>/\&gt;/g;
-  $string =~ s/[\x00--\x1F]//g;  # remove ASCII 0-31
+  $string =~ s/[\x00-\x1F]//g;  # remove ASCII 0-31
   $string =~ s/([\x80-\xFF])/"\&#".ord($1).";"/ge; # escape ASCII 128-255
   $string;
 }
@@ -104,6 +104,7 @@ die "$program: Cannot create connection to $uri_string\n" unless $conn;
 
 $::listening=1;
 $::departing=0;
+$::connecting=1;
 
 
 ######################################################################
@@ -261,6 +262,8 @@ sub on_names {
   ($channel, @list) = splice @list, 2;
   
   log_event(time, $event, "Users on $channel: @list");
+
+  $::connecting=0;
 }
 
 
@@ -274,6 +277,7 @@ sub on_disconnect {
 
   log_event(time, $event, "Attempting to reconnect");
   sleep(1);
+  $::connecting=1;
   $self->connect();
 }
 
@@ -341,6 +345,8 @@ sub on_notice {
 
   # Private stuff
   return if $arg =~ /^\[off\]/i;
+
+  return if $::connecting;
 
   log_event(time, $event, $arg);
 }
