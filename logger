@@ -124,7 +124,7 @@ sub log_event ($$;$) {
   my $log_file = "$log_dir/$date.txt";
   my $rdf_log_file = "$log_dir/$date.rdf";
 
-  my $rdf_suffix="  </rdf:Seq>\n</rdf:Description>\n</rdf:RDF>\n";
+  my $rdf_suffix="    </rdf:Seq>\n  </foaf:ChatChannel>\n</rdf:Description>\n</rdf:RDF>\n";
 
 
   # Failed!
@@ -148,7 +148,8 @@ sub log_event ($$;$) {
          xmlns:dc="http://purl.org/dc/elements/1.1/"
          xmlns:foaf="http://xmlns.com/foaf/0.1/">
 <rdf:Description rdf:about="$uri_string">
-  <rdf:Seq>
+  <foaf:ChatChannel>
+    <rdf:Seq>
 EOT
   } else {
     if (!open(RLOG, "+<$rdf_log_file")) {
@@ -161,12 +162,12 @@ EOT
   }
 
   print RLOG <<"EOT";
-    <rdf:li rdf:parseType="Resource">
-      <dc:date>${date}T$time</dc:date>
+      <rdf:li rdf:parseType="Resource">
+        <dc:date>${date}T$time</dc:date>
 EOT
-  print RLOG qq{      <dc:description>}.xml_escape($msg).qq{</dc:description>\n};
-  print RLOG qq{      <foaf:nick>$nick</foaf:nick>\n} if $nick;
-  print RLOG qq{    </rdf:li>\n};
+  print RLOG qq{        <dc:description>}.xml_escape($msg).qq{</dc:description>\n};
+  print RLOG qq{        <foaf:nick>$nick</foaf:nick>\n} if $nick;
+  print RLOG qq{      </rdf:li>\n};
   print RLOG $rdf_suffix;
 
   close(RLOG);
