@@ -2155,7 +2155,7 @@ and options are:
   -log PATTERN   Name pattern for log files; uses strftime() substitutions
                  plus the string '<channel>'
                  default is <channel>/%Y-%m-%d
-                 (\".txt\", \".html\", and \".rdf\" will be appended)
+                 (".txt", ".html", and ".rdf" will be appended)
   -lroot PATH    Write logs to PATH/DD-channel.{html,rdf,txt}
                  '<server>' in PATH will be replaced with host:port
   -nick NICK     Use IRC nick NICK
