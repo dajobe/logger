@@ -1038,9 +1038,16 @@ sub command_for_me ($$$$$) {
     my($log_uri)=$channel->{LogURIPrefix};
 
     my $output;
-    if($log_uri) {
+    my $chump=undef;
+    if($item =~ /^([A-Za-z]+)$/) {
+      $chump=uc $1;
+    }
+
+    if(!$chump) {
+      $output="Invalid chump item $item";
+    } elsif($log_uri) {
       $log_uri.="#".$channel->{Last_ID} if $channel->{Last_ID};
-      $output="$item:See [$log_uri|discussion]";
+      $output="$chump:See [$log_uri|discussion]";
     } else {
       $output="There is no log URI";
     }
