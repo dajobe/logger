@@ -191,7 +191,7 @@ EOT
     # ID HH-MM-SS-X and increment X
     # otherwise, new ID is OK
     if ($Last_ID =~ /^$ID-(\d+)$/) {
-      $ID.=$1+1;
+      $ID.="-".$1+1;
     }
   } elsif($ID eq $Last_ID) {
     # Else if was same as last ID, must be first duplicate of this
