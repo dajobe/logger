@@ -20,6 +20,9 @@ my $IRC_Name='Chat Logger';
 my $Max_Results=5;
 my @Month_names = qw/XXX Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
+my $Log_URI='http://ilrt.org/discovery/chatlogs/rdfig/';
+my $Channel_Title='W3C RDF Interest Group IRC - http://www.w3.org/RDF/Interest/';
+
 %ENV=();
 $ENV{PATH}='/bin:/usr/bin:/usr/local/bin';
 
@@ -309,8 +312,8 @@ sub on_join {
   my $logging=($::listening) ? "logging" : "not logging";
 
   my(@intro)=(
-   "Welcome to the RDF Interest Group IRC - see http://rdfig.xmlhack.com/",
-   "I'm currently $logging to http://ilrt.org/discovery/chatlogs/rdfig/"
+   "Welcome to the $Channel_Title",
+   "I'm currently $logging to $Log_URI"
   );
 
   my $do_sleep=0;
@@ -342,6 +345,8 @@ sub command_for_me ($$$$) {
   if($command=~ /^(?:quit|finish|terminate|die die die|exterminate)/i) {
     $::departing=1;
     $conn->me($Channel, 'is departing');
+    # Log who told me to quit
+    log_event(time, "Logger told to quit", $from_nick);
     $conn->quit;
     exit 0;
   }
@@ -350,6 +355,8 @@ sub command_for_me ($$$$) {
     if($::listening) {
       $conn->me($Channel, 'is not logging');
       $::listening=0;
+      # Log who turned me off
+      log_event(time, "Logging turned off", $from_nick);
     } else {
       $conn->me($Channel, 'is already not logging');
     }
@@ -360,6 +367,8 @@ sub command_for_me ($$$$) {
     if(!$::listening) {
       $conn->me($Channel, 'is logging');
       $::listening=1;
+      # Log who turned me on
+      log_event(time, "Logging turned on", $from_nick);
     } else {
       $conn->me($Channel, 'is already logging');
     }
@@ -378,9 +387,22 @@ sub command_for_me ($$$$) {
   }
 
   if($command=~ /^help/i) {
-    $output.=q{I understand 'quit', 'silence', 'listen', 'grep [-i] [first-last|last] <perl regex>.  I also respond to private messages.'};
+    my(@help)=(
+      "I understand: 'quit', 'silence', 'listen'",
+      "'grep [-i] [first-last|max] <perl regex>.",
+      "and also respond to private messages privately.",
+      "Logs are written to $Log_URI"
+    );
+    my $do_sleep=0;
+    for my $output (@help) {
+      sleep(1) if $do_sleep;
+      $conn->notice($dest_nick, $output);
+      $do_sleep=1;
+    }
+    return;
   }
-  elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
+
+  if ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
     my $flags='';
     my($first,$last)=(0,$Max_Results);
