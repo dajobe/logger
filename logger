@@ -211,7 +211,7 @@ sub main {
 
   my(%do_log_types)=map {$_ => 1} @::DefaultLogTypes;
 
-  print '$Id$', "\n";
+  print $::program,': $Id$',"\n";
 
   die $usage unless GetOptions (
 			'actions!'  => \$::Do_Actions,
@@ -399,8 +399,9 @@ sub Channel_join($) {
   Channel_open_logs($self) if $::LogInitial;
 
   # Install handlers
-  # On 'end of MOTD' event, join ilrt channel
+  # On 'end of MOTD' event, join channel
   $conn->add_global_handler(376, \&on_connect);
+  $conn->add_global_handler('welcome', \&on_connect);
   $conn->add_global_handler(353, \&on_names);
   $conn->add_global_handler('disconnect', \&on_disconnect);
 
@@ -451,10 +452,8 @@ sub Channel_get_log_dir ($) {
 
   # %%% need something special for $self->{LogFilePrefix} ?
 
-#  my $uri=$self->{URI}; # %%% might be undef
-  my $channel_name=$self->{NAME}; $channel_name=~ s/\W//g;
-
-  return './'.$channel_name.'/';
+  my $uri=$self->{URI};
+  return $uri->host.$::PortSep.$uri->port.'/';
 }
 
 
@@ -522,7 +521,8 @@ sub Channel_open_logs ($) {
   my $date = sprintf("%04d-%02d-%02d", $tm[5], $tm[4], $tm[3]);
 
   my(%log_files);
-  
+
+  my $log_dir='./';
   if (my $log_name=$self->{LogName}) {
     $self->{LogFilePrefix}=$log_name;
     $self->{LogURIPrefix}=$::Log_URI if $::Log_URI;
@@ -533,26 +533,30 @@ sub Channel_open_logs ($) {
     }
     else {
       $log_name = strftime( $::Default_Pattern, gmtime );
-      my $log_dir=Channel_get_log_dir($self);
+      $log_dir=Channel_get_log_dir($self);
 
-      print "making $log_dir\n";
-      mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
-      # Failed!
-      if (! -d $log_dir) {
-	log_admin_event($self, undef, time, "Failed to create chat log dir $log_dir - $!");
-	unlink $::PID_File;
-	return;
-      }
     }
     $log_name =~ s/<channel>/$channel_name/;
 
     $self->{LogBasename} = $log_name;
     $self->{LogFilePrefix} =
-	  ($::Log_LocalPath ? $::Log_LocalPath : './').$log_name;
+	  ($::Log_LocalPath ? $::Log_LocalPath : $log_dir).$log_name;
     $self->{LogURIPrefix} = $::Log_URI.$log_name if $::Log_URI;
   }
-    
-  print 'Opening ',$self->{LogFilePrefix},"\n";
+		       
+		       
+  my $dir=dirname($self->{LogFilePrefix});
+  if (! -d $dir) {
+    mkpath([$dir], 0, 0755);
+    # Failed!
+    if (! -d $dir) {
+      log_admin_event($self, undef, time, "Failed to create chat log dir $dir - $!");
+      unlink $::PID_File;
+      return;
+    }
+  }
+		  
+  print "$::program: Opening ",$self->{LogFilePrefix},"\n";
 
   for my $type (@{$self->{LogTypes}}) {
     $log_files{$type}=$self->{LogFilePrefix}.".".$type;
@@ -1227,7 +1231,9 @@ sub command_for_me ($$$$$) {
 	Say( $self, $dest_nick, "I don't know what channel you might mean" );
 	return;
     }
-    DisplayActionItems($self, $event, $channel, $from_nick, $dest_nick);
+    if($::Do_Actions) {
+      DisplayActionItems($self, $event, $channel, $from_nick, $dest_nick);
+    }
     Perform( $dest_nick,
 	     sub {
 		# Log who told me to quit
@@ -1423,8 +1429,12 @@ sub command_for_me ($$$$$) {
     }
     @help=(@help,
       "any lines starting [off].   All commands to me are logged.",
-      "My public output is logged but these lines are not searchable.",
-      "The log is in ".($self->{LogURIPrefix} ? $self->{LogURIPrefix} : $::Log_URI),
+      "My public output is logged but these lines are not searchable.");
+    if($self->{LogURIPrefix} || $::Log_URI) {
+      @help=(@help,
+	     "The log is in ".($self->{LogURIPrefix} ? $self->{LogURIPrefix} : $::Log_URI));
+    }
+    @help=(@help,
       "Do $::Nick, adminhelp for help on administrative commands",
     );
 
@@ -2041,13 +2051,14 @@ sub ExportActionList($)
 	    $docname = strftime( $::Default_ActionPattern, gmtime );
 	    my $log_dir=Channel_get_log_dir($channel);
 
-	    print "making $log_dir\n";
-	    mkpath([$log_dir], 0, 0755) if ! -d $log_dir;
-	    # Failed!
-	    if (! -d $log_dir) {
+	    if(!-d $log_dir) {
+	      mkpath([$log_dir], 0, 0755);
+	      # Failed!
+	      if (! -d $log_dir) {
 		log_admin_event($channel, undef, time, "Failed to create chat log dir $log_dir - $!");
 		unlink $::PID_File;
 		return;
+	      }
 	    }
 	}
 
@@ -2157,8 +2168,9 @@ and options are:
                  '<channel>' will be replaced with the channel name.
                  Default is <channel>/%Y-%m-%d
                  (".txt", ".html", and ".rdf" will be appended)
-  -lroot PATH    Write logs to PATH/DD-channel.{html,rdf,txt}
+  -lroot PATH    Write logs to PATH concat PATTERN (from -log PATTERN)
                  '<server>' in PATH will be replaced with host:port
+		 Default is <server>/
   -nick NICK     Use IRC nick NICK
   -uroot URI     URI prefix for logs; '/' is not automatically added
                  '<server>' will be replaced with host:port
