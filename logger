@@ -585,8 +585,9 @@ sub command_for_me ($$$$) {
 	print PIPE join("\n", reverse @results);
 	close(PIPE);
 	$output.=qq{ Mailed $count result$pl to $mail};
+	log_event(time, $event, "Search results from '$orig_search' mailed to $mail");
       } else {
-	$output.=qq{ Sorry, failed to mail results to $mail};
+	$output.=qq{ Sorry, failed to mail results to $mail - internal error};
       }
     } else {
       my $pl=(@results != 1) ? 's' : '';
