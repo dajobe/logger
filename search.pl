@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl -Tw
+#!/usr/bin/perl -Tw
 #
 # IRC Chat search CGI script
 #
