@@ -21,7 +21,7 @@ my $Port='6667';
 
 my $Log_Root='/home/logger/chat-logs';
 
-my $Max_Results=3;
+my $Max_Results=5;
 
 ######################################################################
 %ENV=();
@@ -87,22 +87,22 @@ sub log_event ($$) {
 }
 
 
-sub get_log () {
+sub get_logs () {
   my $c=$Channel;
   $c=~ s/\W//g;
   my $log_dir="$Log_Root/$Server:$Port/$c/";
 
-  my @tm = localtime(time);
-  $tm[5]+= 1900; $tm[4]++;
-  my $date_time = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
-			  $tm[5], $tm[4], $tm[3],
-			  $tm[2], $tm[1], $tm[0]);
-  
-  my $log_file = sprintf("$log_dir/%04d-%02d.log", $tm[5], $tm[4]);
-  # Failed!
-  return () if !open(LOG, "$log_file");
-  my(@results)=map {chomp, $_} <LOG>;
-  close(LOG);
+  return () if !opendir(DIR, $log_dir);
+
+  my(@results)=();
+  for my $file (sort readdir(DIR)) {
+    next unless $file =~ /^\d\d\d\d-\d\d.log/;
+    open(LOG, "$log_dir/$file") or next;
+    
+    push(@results, map {chomp, $_} <LOG>);
+    close(LOG);
+  }
+
   return(@results);
 }
 
@@ -230,17 +230,21 @@ sub command_for_me ($$$) {
   }
   elsif ($command =~ /^(?:grep|search for|find)\s+(.+)$/) {
     my $search=$1;
+    my $max=$Max_Results;
+    if($search=~ s/^(\d+)\s+(?:things about\s+|)//) {
+      $max=$1;
+    }
     # Only allow a few regexes
     $search =~ s/[^a-z0-9A-Z\.+*]/./g;
-    my(@bits)=grep(/$search/, get_log());
+    my(@bits)=grep(/$search/, get_logs());
     if (!@bits) {
       $output.=" Nothing found for '$search' :-(";
     } else {
       $output.=" Found ".scalar(@bits)." answers:\n";
       $conn->notice($Channel, $output);
       for(my $i=0; $i< @bits; $i++) {
-	if($i > $Max_Results) {
-	  $conn->notice($Channel, "Truncated\n");
+	if($i > $max) {
+	  $conn->notice($Channel, "Truncated after $max items\n");
 	  last;
 	}
 	$conn->notice($Channel, "$i: ".$bits[$i]."\n");
