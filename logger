@@ -1,12 +1,9 @@
 #!/usr/bin/perl -w
 #
-# IRC RDF Chat Logger
+# IRC Chat Logger
 #
-# $Source$
-# $Id$
-#
-# (C) Copyright 2000-2001 Dave Beckett, ILRT, University of Bristol
-# http://purl.org/net/dajobe/
+# (C) Copyright 2000-2008 Dave Beckett, http://www.dajobe.org/
+# (C) Copyright 2000-2001 University of Bristol
 #
 # with modifications from Ralph Swick
 # http://www.w3.org/People/all#swick
@@ -176,6 +173,7 @@ Usage: $::program [option...] password channel-URI channel-title log-dir log-URI
                     of channel/YYYY-MM-DD
                     (\".txt\", \".html\", and \".rdf\" will be appended)
    -nick <nick>     set the nick
+   -pidfile <pidfile> Write PIDs to pidfile rather than default
    -connectuser <user> on connect /msg this user
    -connectcmd <cmd>   with this command
 
@@ -192,6 +190,7 @@ EOT
 		       'html!'	 => \$do_log_types{'html'},
 		       'text!'	 => \$do_log_types{'txt'},
 		       'log=s'	 => \$log_name,
+		       'pidfile=s'	 => \$::PID_File,
 		       'nick=s'	 => \$::Nick,
 		       'connectuser=s'	 => \$::Connect_User,
 		       'connectcmd=s'	 => \$::Connect_CMD,
@@ -232,7 +231,8 @@ EOT
   # FIXME - pid_file should not have channel in it, when logger
   # handles multiple channels
   my $channel_name=$uri->channel;
-  $::PID_File=$::Log_Root.'/logger-'.$channel_name.'.pid';
+  $::PID_File=$::Log_Root.'/logger-'.$channel_name.'.pid'
+	unless $::PID_File;
   open(PID,">$::PID_File");
   print PID "$$\n";
   close(PID);
