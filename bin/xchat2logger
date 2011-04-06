@@ -2,7 +2,7 @@
 #
 # Turn xchat chatlogs into RDF Chat Logger format
 #
-# (C) Copyright 2003 Dave Beckett, University of Bristol
+# (C) Copyright 2003-2010 Dave Beckett, University of Bristol
 # http://www.dajobe.org/
 #
 #   This program is free software; you can redistribute it and/or
@@ -24,9 +24,9 @@
 # For documentation run perldoc on this file 'perldoc xchat2logger'
 #
 
-my $year='2003'; # will be set/reset from xchatlog
+my $year='2010'; # will be set/reset from xchatlog
 
-my $tz_offset= -1;  # Number of hours to adjust time by (BST to GMT= -1)
+my $tz_offset= +7;  # Number of hours to adjust time by (BST to GMT= -1)
 
 open(RDF, ">log.rdf");
 open(TEXT, ">log.txt");
@@ -80,7 +80,7 @@ while(<>) {
   my $date=sprintf("%04d-%02d-%02d", $year, $month, $day);
 
   my($nick, $desc);
-  if(m%^(?:--.* sets mode|-MemoServ|--[->]\s+You are now|---\s+Topic for|>\w+<|\-\w+\-|---.*Unknown command|---\s+Disconnected)%) {
+  if(m%^(?:--.* sets mode|-MemoServ|--[->]\s+You are now|---\s+Topic for|>\w+<|\-\w+\-|---.*Unknown command|---\s+Disconnected|---.* left the channel|---.* joined the channel|---.*You connected|---.*You disconnected|---.*changed mode)%) {
     next;
   } elsif (m%^-->\s+(.+?) has (joined .*)$%) {
    $nick=$1;
@@ -120,7 +120,7 @@ while(<>) {
 # Stolen from logger:
   my $id="T$time"; $id =~ s/:/-/g;
   # add a unique suffix if necessary
-  if($last_id != $id) {
+  if($last_id ne $id) {
     # If last ID was in same second, need to start from next
     # ID HH-MM-SS-X and increment X
     # otherwise, new ID is OK
