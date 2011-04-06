@@ -30,11 +30,11 @@ my $version=strftime("%Y-%m-%d", gmtime);
 WriteMakefile(
     'DISTNAME'	=> "logger",
     'NAME'	=> "logger",
-    'AUTHOR'    => 'Dave Beckett <Dave.Beckett@bristol.ac.uk>  Ralph Swick <swick@w3.org>',
+    'AUTHOR'    => 'Dave Beckett <http://www.dajobe.org/>, Ralph Swick <swick@w3.org>',
     'ABSTRACT'  => "IRC Logger bot",
     'VERSION'   => $version,
 
-    'EXE_FILES' => ['logger', 'indexly', 'rebuild-indexes' ],
+    'EXE_FILES' => ['bin/logger', 'bin/indexly', 'bin/rebuild-indexes' ],
     'clean'     => { FILES => "README help.html logger.1" },
 );
 
