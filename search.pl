@@ -2,10 +2,8 @@
 #
 # IRC Chat search CGI script
 #
-# $Id$
-#
-# (C) Copyright 2004 Dave Beckett, ILRT, University of Bristol
-# http://purl.org/net/dajobe/
+# (C) Copyright 2004 Dave Beckett, University of Bristol
+# http://www.dajobe.org/
 #
 #   This program is free software; you can redistribute it and/or
 #   modify it under the terms of the GNU General Public License

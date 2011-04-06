@@ -2,8 +2,6 @@
 #
 # Makefile.PL - perl Extutils::MakeMaker makefile for logger bot
 #
-# $Id$
-#
 # See README.html for license terms.
 # 
 # USAGE: perl Makefile.PL

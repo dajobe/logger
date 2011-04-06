@@ -486,8 +486,7 @@ sub Channel_open_logs ($) {
 <head>
  <title>IRC log of $escaped_chan on $date</title>
 EOT
-      my $progID = '$Id$';
-      $progID =~ s/\$/\&#36;/g;	# Hide the CVS tag from CVS in the output
+      my $progID = $::program;
       print $html_log_fh '<meta name="generator" content="'.$progID.'" />';
       print $html_log_fh <<"EOT";
 
